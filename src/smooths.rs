@@ -42,13 +42,14 @@ impl Smooths {
         };
         let mut rets: Vec<u128> = thread::scope(|s| {
             let mut handles = vec![];
-            let mut p = prime;
+            let p128: u128 = u128::try_from(prime).unwrap();
+            let mut p: u128 = p128;
             let mut i = 0;
-            while u128::try_from(p).unwrap() <= bound {
+            while p <= bound {
                 let h = s.spawn(move || generate_with_fixed(i));
                 handles.push(h);
                 i += 1;
-                p *= prime;
+                p *= p128;
             }
             handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
         });

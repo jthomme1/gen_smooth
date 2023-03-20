@@ -51,6 +51,8 @@ fn main() {
     let right = |x: u128| {x + 2u128*x.integer_sqrt() + 1u128};
     let left = |x: u128| {x - 2u128*x.integer_sqrt() + 1u128};
     let get_ind = |val: u128, c: f64| {find_highest_prime_ind_below(get_prime_bound(right(val)+1, c))};
+    let num_threads = thread::available_parallelism().unwrap().get();
+    println!("Detected {num_threads} threads.");
     while cur < smooths.smooths.len()-1 && c < 4.0 {
         let cur_val = smooths.smooths[cur];
         let mut ind = get_ind(cur_val, c);
@@ -59,7 +61,6 @@ fn main() {
         // inner loop for trying to add primes without stretching c
         while cur < smooths.smooths.len()-1 {
             let step_width: usize = 1 << 20;
-            let num_threads = thread::available_parallelism().unwrap().get();
             let do_part = |i: usize| -> Option<usize> {
                 let start = min(i*step_width, smooths.smooths.len()-1);
                 let stop = min((i+1)*step_width, smooths.smooths.len()-1);
