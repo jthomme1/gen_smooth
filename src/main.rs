@@ -13,6 +13,7 @@ pub mod smooths;
 
 static PRIME_BOUND: usize = 2<<20;
 static PRIMES: Lazy<Vec<usize>> = Lazy::new(|| primal::Sieve::new(PRIME_BOUND).primes_from(0).collect());
+static NUM_THREADS: usize = 8;
 
 fn get_prime_bound(n: u128, c: f64) -> usize {
     unsafe {
@@ -59,7 +60,6 @@ fn main() {
         // inner loop for trying to add primes without stretching c
         while cur < smooths.smooths.len()-1 {
             let step_width: usize = 1 << 20;
-            let num_threads = 8;
             let do_part = |i: usize| -> Option<usize> {
                 let start = min(i*step_width, smooths.smooths.len()-1);
                 let stop = min((i+1)*step_width, smooths.smooths.len()-1);
@@ -72,7 +72,7 @@ fn main() {
             };
             let rets: Vec<usize> = thread::scope(|s| {
                 let mut handles = vec![];
-                for i in 0..num_threads {
+                for i in 0..NUM_THREADS {
                     let h = s.spawn(move || do_part(i));
                     handles.push(h);
                 }
@@ -89,7 +89,7 @@ fn main() {
                     smooths.add_primes_and_cut(ind, &mut cur);
                 },
                 None => {
-                    cur = min(cur+num_threads*step_width, smooths.smooths.len()-1);
+                    cur = min(cur+NUM_THREADS*step_width, smooths.smooths.len()-1);
                 },
             }
         }

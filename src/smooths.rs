@@ -2,7 +2,6 @@ use std::vec::Vec;
 use crate::composite::Composite;
 use super::PRIMES;
 use std::thread;
-use std::cmp::max;
 use closure::closure;
 use rayon::prelude::*;
 
@@ -24,25 +23,40 @@ impl Smooths {
         let prime = PRIMES[ind];
         assert!(u128::try_from(prime).unwrap() < bound);
         println!("{}: Generating smooth numbers", prime);
-        let mut es: Vec<u32> = vec![0; ind+1];
-        es[ind] = 1;
+        let generate_with_fixed = move |e_val: u32| {
+            let mut es: Vec<u32> = vec![0; ind+1];
+            es[ind] = e_val;
 
-        let mut new_smooths: Vec<u128> = vec![];
-        let mut c = Composite::new(es);
-        let mut add_if_greater = |c: &Composite| {
-            if lower_bound < c.value {
-                new_smooths.push(c.value);
-            }
-        };
-        add_if_greater(&c);
-        while c.inc_vec_with_bound(bound) {
+            let mut new_smooths: Vec<u128> = vec![];
+            let mut c = Composite::new(es);
+            let mut add_if_greater = |c: &Composite| {
+                if lower_bound < c.value {
+                    new_smooths.push(c.value);
+                }
+            };
             add_if_greater(&c);
-        }
-        println!("{}: Generated {} smooth numbers", prime, new_smooths.len());
+            while c.inc_vec_with_bound(bound) && c.es[ind] == e_val {
+                add_if_greater(&c);
+            }
+            new_smooths
+        };
+        let mut rets: Vec<u128> = thread::scope(|s| {
+            let mut handles = vec![];
+            let mut p = prime;
+            let mut i = 0;
+            while u128::try_from(p).unwrap() <= bound {
+                let h = s.spawn(move || generate_with_fixed(i));
+                handles.push(h);
+                i += 1;
+                p *= prime;
+            }
+            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
+        });
+        println!("{}: Generated {} smooth numbers", prime, rets.len());
         println!("{}: Now sorting", prime);
-        new_smooths.par_sort_unstable();
+        rets.par_sort_unstable();
         println!("{}: Done sorting", prime);
-        new_smooths
+        rets
     }
 
     pub fn add_primes_and_cut(&mut self, ind: usize, cur: &mut usize) {
