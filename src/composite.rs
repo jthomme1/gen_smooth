@@ -31,6 +31,7 @@ impl Composite {
     }
 
     fn try_inc_ind(&mut self, bound: u128, ind: usize) -> bool {
+        // try to increment the exponent at index ind and set it to 0 otherwise
         self.value *= u128::try_from(PRIMES[ind]).unwrap();
         self.es[ind] += 1;
         if !(self.value <= bound) {
@@ -41,6 +42,8 @@ impl Composite {
     }
 
     pub fn inc_vec_with_bound(&mut self, bound: u128) -> bool {
+        // increment the number represented by the exponents
+        // return false if no increment would be possible without surpassing the bound
         for i in 0..self.es.len() {
             if self.try_inc_ind(bound, i) {
                 return true;

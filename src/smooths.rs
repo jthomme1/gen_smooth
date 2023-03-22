@@ -15,6 +15,7 @@ impl Smooths {
     pub fn upto(bound: u128, cur: &mut usize) -> Self {
         assert!(bound > 2);
         let mut ret = Smooths{bound: bound, nr_primes: 0, smooths: vec![]};
+        // we always already add the 2 smooth numbers
         ret.add_primes_and_cut(0, cur);
         ret
     }
@@ -23,6 +24,7 @@ impl Smooths {
         let prime = PRIMES[ind];
         assert!(u128::try_from(prime).unwrap() < bound);
         println!("{}: Generating smooth numbers", prime);
+        // generate all smooth numbers with a fixed exponent for the new prime
         let generate_with_fixed = move |e_val: u32| {
             let mut es: Vec<u32> = vec![0; ind+1];
             es[ind] = e_val;
@@ -35,11 +37,14 @@ impl Smooths {
                 }
             };
             add_if_greater(&c);
+            // we break if we there is no more number to be generated
+            // or if the fixed exponent would change
             while c.inc_vec_with_bound(bound) && c.es[ind] == e_val {
                 add_if_greater(&c);
             }
             new_smooths
         };
+        // for each possible exponent we start a thread
         let mut rets: Vec<u128> = thread::scope(|s| {
             let mut handles = vec![];
             let p128: u128 = u128::try_from(prime).unwrap();
@@ -55,18 +60,24 @@ impl Smooths {
         });
         println!("{}: Generated {} smooth numbers", prime, rets.len());
         println!("{}: Now sorting", prime);
+        // sort in parallel
         rets.par_sort_unstable();
         println!("{}: Done sorting", prime);
         rets
     }
 
     pub fn add_primes_and_cut(&mut self, ind: usize, cur: &mut usize) {
+        // we throw away the numbers we already surpassed
         self.smooths = self.smooths.split_off(*cur);
         *cur = 0;
+        // if the prime has already been added, do nothing
         if ind+1 <= self.nr_primes {
             return;
         }
+        // if no prime has been added yet, there is no lower bound on the generated numbers
+        // otherwise, it is the first smooth number left after throwing away the surpassed ones
         let val_prev: u128 = if self.nr_primes == 0 {0} else {self.smooths[0]};
+        // start a thread for each prime to add
         let mut rets: Vec<Vec<u128>> = thread::scope(|s| {
             let mut handles = vec![];
             for i in self.nr_primes..ind+1 {
@@ -80,6 +91,7 @@ impl Smooths {
         });
         rets.iter_mut().for_each(|r| self.smooths.append(r));
         println!("Sorting all together");
+        // sort in parallel
         self.smooths.par_sort_unstable();
         println!("Done sorting all together");
         assert!(self.smooths[0] == val_prev || val_prev == 0);
@@ -102,7 +114,7 @@ impl Smooths {
         l
     }
     */
-    
+
     pub fn get(&self, index: usize) -> Option<u128> {
         if index == self.smooths.len() {
             None
