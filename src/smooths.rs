@@ -14,13 +14,11 @@ struct SmoothsFixedPrimes {
 impl SmoothsFixedPrimes {
 
     pub fn new(lower_bound: u128, upper_bound: u128, prime_ind: usize) -> Self {
-        let mut v = vec![0; prime_ind+1];
-        v[prime_ind] = 1;
         SmoothsFixedPrimes{
             prime_ind: prime_ind,
             lower_bound: lower_bound,
             upper_bound: upper_bound,
-            seeds: vec![Composite::new(v)]
+            seeds: vec![Composite::new(prime_ind, 1)]
         }
     }
 
@@ -31,14 +29,12 @@ impl SmoothsFixedPrimes {
         let upper_bound = self.upper_bound;
         println!("{}: Initial generation of smooth numbers", prime);
         // generate all smooth numbers with a fixed exponent for the new prime
-        let generate_with_fixed = |e_val: u32| {
-            let mut es: Vec<u32> = vec![0; ind+1];
-            es[ind] = e_val;
+        let generate_with_fixed = |e_val: u8| {
+            let mut c = Composite::new(ind, e_val);
 
             let mut new_smooths: Vec<u128> = vec![];
             let mut new_seeds: Vec<Composite> = vec![];
-            let base = Composite::one(es.len());
-            let mut c = Composite::new(es);
+            let base = Composite::one();
             let mut add_if_greater = |c: &Composite| {
                 // the upper bound is already checked when generating the number
                 if lower_bound < c.value {

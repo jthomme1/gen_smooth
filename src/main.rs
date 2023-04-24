@@ -124,8 +124,9 @@ fn main() {
             }
         }
         let new_upper_bound = min(smooths.upper_bound + (smooths.upper_bound>>1), n);
-        println!("Setting upper_bound from {} to {}", smooths.upper_bound, new_upper_bound);
+        println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
         smooths.next(new_upper_bound);
+        println!("Done setting upper bound");
     }
     println!("Done!");
 }

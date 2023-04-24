@@ -2,35 +2,36 @@ use std::cmp::{PartialEq, PartialOrd, Ord, Ordering, Eq};
 use std::vec::Vec;
 use super::PRIMES;
 
-#[derive(Eq, Debug)]
+#[derive(Eq, Debug, Copy, Clone)]
 pub struct Composite {
     pub value: u128,
-    pub es: Vec<u32>,
+    pub es: [u8; 64],
 }
 
 impl Composite {
-    pub fn new(es: Vec<u32>) -> Self {
-        assert!(es.len() <= PRIMES.len());
+    pub fn new(e_ind: usize, e_val: u8) -> Self {
+        let mut es: [u8; 64] = [0; 64];
+        es[e_ind] = e_val;
         let value = es
             .iter()
             .enumerate()
-            .fold(1u128, |acc, (i, &e)| acc*u128::try_from(PRIMES[i]).unwrap().pow(e));
+            .fold(1u128, |acc, (i, &e)| acc*u128::try_from(PRIMES[i]).unwrap().pow(e.into()));
         Composite{value, es}
     }
 
-    fn set_e(&mut self, ind: usize, new_e: u32) {
+    fn set_e(&mut self, ind: usize, new_e: u8) {
         let old_e = self.es[ind];
         if old_e > new_e {
-            let change = u128::try_from(PRIMES[ind]).unwrap().pow(old_e - new_e);
+            let change = u128::try_from(PRIMES[ind]).unwrap().pow((old_e - new_e).into());
             self.value /= change
         } else {
-            let change = u128::try_from(PRIMES[ind]).unwrap().pow(new_e - old_e);
+            let change = u128::try_from(PRIMES[ind]).unwrap().pow((new_e - old_e).into());
             self.value *= change
         }
         self.es[ind] = new_e;
     }
 
-    fn try_inc_ind_rst(&mut self, bound: u128, ind: usize, e: u32) -> Option<Self> {
+    fn try_inc_ind_rst(&mut self, bound: u128, ind: usize, e: u8) -> Option<Self> {
         // try to increment the exponent at index ind and set it to e otherwise
         // returns None on success and Some(composite number) if it surpasses our bound
         self.value *= u128::try_from(PRIMES[ind]).unwrap();
@@ -57,19 +58,8 @@ impl Composite {
         return ret;
     }
 
-    pub fn one(len: usize) -> Self {
-        Composite{value: 1, es: vec![0; len]}
-    }
-}
-
-impl Clone for Composite {
-    fn clone(&self) -> Self {
-        Composite{value: self.value, es: self.es.clone()}
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.value = source.value;
-        self.es = source.es.clone();
+    pub fn one() -> Self {
+        Self::new(0, 0)
     }
 }
 
