@@ -1,119 +1,162 @@
 use std::vec::Vec;
 use crate::composite::Composite;
-use super::PRIMES;
+use super::{PRIMES, NUM_THREADS};
 use std::thread;
-use closure::closure;
 use rayon::prelude::*;
 
-pub struct Smooths {
-    pub bound: u128,
-    pub nr_primes: usize,
-    pub smooths: Vec<u128>,
+struct SmoothsFixedPrimes {
+    pub prime_ind: usize,
+    pub lower_bound: u128,
+    pub upper_bound: u128,
+    pub seeds: Vec<Composite>,
 }
 
-impl Smooths {
-    pub fn upto(bound: u128, cur: &mut usize) -> Self {
-        assert!(bound > 2);
-        let mut ret = Smooths{bound: bound, nr_primes: 0, smooths: vec![]};
-        // we always already add the 2 smooth numbers
-        ret.add_primes_and_cut(0, cur);
-        ret
+impl SmoothsFixedPrimes {
+
+    pub fn new(lower_bound: u128, upper_bound: u128, prime_ind: usize) -> Self {
+        let mut v = vec![0; prime_ind+1];
+        v[prime_ind] = 1;
+        SmoothsFixedPrimes{
+            prime_ind: prime_ind,
+            lower_bound: lower_bound,
+            upper_bound: upper_bound,
+            seeds: vec![Composite::new(v)]
+        }
     }
 
-    fn gen_smooths_for_prime(bound: u128, ind: usize, lower_bound: u128) -> Vec<u128> {
+    pub fn init_gen(&mut self) -> Vec<u128> {
+        let ind = self.prime_ind;
         let prime = PRIMES[ind];
-        assert!(u128::try_from(prime).unwrap() < bound);
-        println!("{}: Generating smooth numbers", prime);
+        let lower_bound = self.lower_bound;
+        let upper_bound = self.upper_bound;
+        println!("{}: Initial generation of smooth numbers", prime);
         // generate all smooth numbers with a fixed exponent for the new prime
-        let generate_with_fixed = move |e_val: u32| {
+        let generate_with_fixed = |e_val: u32| {
             let mut es: Vec<u32> = vec![0; ind+1];
             es[ind] = e_val;
 
             let mut new_smooths: Vec<u128> = vec![];
+            let mut new_seeds: Vec<Composite> = vec![];
+            let base = Composite::one(es.len());
             let mut c = Composite::new(es);
             let mut add_if_greater = |c: &Composite| {
+                // the upper bound is already checked when generating the number
                 if lower_bound < c.value {
                     new_smooths.push(c.value);
                 }
             };
             add_if_greater(&c);
-            // we break if we there is no more number to be generated
-            // or if the fixed exponent would change
-            while c.inc_vec_with_bound(bound) && c.es[ind] == e_val {
-                add_if_greater(&c);
+            // we break if the fixed exponent would change
+            loop {
+                let mut s = c.inc_vec_with_bound_rst(upper_bound, &base);
+                new_seeds.append(&mut s);
+                if c.es[ind] == e_val {
+                    add_if_greater(&c);
+                } else {
+                    break
+                }
             }
-            new_smooths
+            (new_smooths, new_seeds)
         };
         // for each possible exponent we start a thread
-        let mut rets: Vec<u128> = thread::scope(|s| {
+        let mut rets: (Vec<u128>, Vec<Composite>) = thread::scope(|s| {
             let mut handles = vec![];
             let p128: u128 = u128::try_from(prime).unwrap();
             let mut p: u128 = p128;
-            let mut i = 0;
-            while p <= bound {
+            let mut i = 1;
+            while p <= self.upper_bound {
                 let h = s.spawn(move || generate_with_fixed(i));
                 handles.push(h);
                 i += 1;
                 p *= p128;
             }
-            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
+            let v: (Vec<Vec<u128>>, Vec<Vec<Composite>>) = handles.into_iter().map(|h| h.join().unwrap()).unzip();
+            (v.0.concat(), v.1.concat())
         });
-        println!("{}: Generated {} smooth numbers", prime, rets.len());
-        println!("{}: Now sorting", prime);
-        // sort in parallel
-        rets.par_sort_unstable();
-        println!("{}: Done sorting", prime);
-        rets
+        //println!("{}: Generated {} seeds: {:?}", prime, rets.1.len(), rets.1);
+        //println!("{}: Generated {} smooth numbers: {:?}", prime, rets.0.len(), rets.0);
+        rets.1.par_sort_unstable();
+        rets.1.dedup();
+        self.seeds = rets.1;
+        rets.0.par_sort_unstable();
+        rets.0
     }
 
-    pub fn add_primes_and_cut(&mut self, ind: usize, cur: &mut usize) {
-        // we throw away the numbers we already surpassed
-        self.smooths = self.smooths.split_off(*cur);
-        *cur = 0;
+    pub fn generate_smooths(&mut self, new_upper_bound: u128) -> Vec<u128> {
+        assert!(new_upper_bound >= self.upper_bound);
+
+        let mut rets: (Vec<u128>, Vec<Composite>) = thread::scope(|s| {
+            let gen_from_seeds = |i: usize| {
+                let mut new_smooths = vec![];
+                let mut new_seeds = vec![];
+                for si in (i..self.seeds.len()).step_by(*NUM_THREADS) {
+                    let s = &self.seeds[si];
+                    if s.value > new_upper_bound {
+                        new_seeds.push(s.clone());
+                        continue;
+                    }
+                    let mut r = s.clone();
+                    loop {
+                        let mut v = r.inc_vec_with_bound_rst(new_upper_bound, s);
+                        new_seeds.append(&mut v);
+                        new_smooths.push(r.value);
+                        if r == *s { break }
+                    }
+
+                }
+                (new_smooths, new_seeds)
+            };
+            let mut handles = vec![];
+            for i in 0..*NUM_THREADS {
+                handles.push(s.spawn(move || gen_from_seeds(i)));
+            }
+            let v: (Vec<Vec<u128>>, Vec<Vec<Composite>>) = handles.into_iter().map(|h| h.join().unwrap()).unzip();
+            (v.0.concat(), v.1.concat())
+        });
+        //println!("{}: Generated {} seeds: {:?}", PRIMES[self.prime_ind], rets.1.len(), rets.1);
+        //println!("{}: Generated {} smooth numbers: {:?}", PRIMES[self.prime_ind], rets.0.len(), rets.0);
+
+        self.lower_bound = self.upper_bound;
+        self.upper_bound = new_upper_bound;
+        rets.1.sort_unstable();
+        rets.1.dedup();
+        self.seeds = rets.1;
+        rets.0.sort_unstable();
+        rets.0
+    }
+}
+
+pub struct Smooths {
+    // lower_bound < x <= upper_bound
+    pub lower_bound: u128,
+    pub upper_bound: u128,
+    gens: Vec<SmoothsFixedPrimes>,
+    pub smooths: Vec<u128>,
+}
+
+impl Smooths {
+    pub fn new() -> Self {
+        let mut ret = Smooths{lower_bound: 1, upper_bound: 1<<40, gens: vec![], smooths: vec![]};
+        // we always already add the 2 smooth numbers
+        ret.add_primes(0, 1);
+        ret
+    }
+
+    pub fn add_primes(&mut self, ind: usize, lower_bound: u128) {
         // if the prime has already been added, do nothing
-        if ind+1 <= self.nr_primes {
+        if ind+1 <= self.gens.len() {
             return;
         }
-        // if no prime has been added yet, there is no lower bound on the generated numbers
-        // otherwise, it is the first smooth number left after throwing away the surpassed ones
-        let val_prev: u128 = if self.nr_primes == 0 {0} else {self.smooths[0]};
-        // start a thread for each prime to add
-        let mut rets: Vec<Vec<u128>> = thread::scope(|s| {
-            let mut handles = vec![];
-            for i in self.nr_primes..ind+1 {
-                let bound = self.bound;
-                let h = s.spawn(closure!(move bound, move i, ref val_prev, || {
-                    Self::gen_smooths_for_prime(bound, i, *val_prev)
-                }));
-                handles.push(h);
-            }
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
-        rets.iter_mut().for_each(|r| self.smooths.append(r));
+        for i in self.gens.len()..ind+1 {
+            let mut gen = SmoothsFixedPrimes::new(lower_bound, self.upper_bound, i);
+            self.smooths.append(&mut gen.init_gen());
+            self.gens.push(gen);
+        }
         println!("Sorting all together");
         // sort in parallel
         self.smooths.par_sort_unstable();
         println!("Done sorting all together");
-        assert!(self.smooths[0] == val_prev || val_prev == 0);
-        self.nr_primes = ind+1;
     }
-
-    /*
-    fn get_ind(&self, val: u128) -> usize {
-        let mut l: usize = 0;
-        let mut r: usize = self.smooths.len();
-        while l + 1 < r {
-            let m = l + (r-l)/2;
-            if self.smooths[m] > val {
-                r = m;
-            } else {
-                l = m;
-            }
-        }
-        assert!(val == self.smooths[l]);
-        l
-    }
-    */
 
     pub fn get(&self, index: usize) -> Option<u128> {
         if index == self.smooths.len() {
@@ -121,6 +164,21 @@ impl Smooths {
         } else {
             Some(self.smooths[index])
         }
+    }
+
+    pub fn next(&mut self, new_upper_bound: u128) {
+       self.smooths = thread::scope(|s| {
+            let mut handles = vec![];
+            for g in self.gens.iter_mut() {
+                let h = s.spawn(move || g.generate_smooths(new_upper_bound));
+                handles.push(h);
+            }
+            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
+        });
+       self.smooths.par_sort_unstable();
+       self.smooths.dedup();
+       self.lower_bound = self.upper_bound;
+       self.upper_bound = new_upper_bound;
     }
 }
 

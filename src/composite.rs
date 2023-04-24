@@ -2,7 +2,7 @@ use std::cmp::{PartialEq, PartialOrd, Ord, Ordering, Eq};
 use std::vec::Vec;
 use super::PRIMES;
 
-#[derive(Eq)]
+#[derive(Eq, Debug)]
 pub struct Composite {
     pub value: u128,
     pub es: Vec<u32>,
@@ -30,37 +30,35 @@ impl Composite {
         self.es[ind] = new_e;
     }
 
-    fn try_inc_ind(&mut self, bound: u128, ind: usize) -> bool {
-        // try to increment the exponent at index ind and set it to 0 otherwise
+    fn try_inc_ind_rst(&mut self, bound: u128, ind: usize, e: u32) -> Option<Self> {
+        // try to increment the exponent at index ind and set it to e otherwise
+        // returns None on success and Some(composite number) if it surpasses our bound
         self.value *= u128::try_from(PRIMES[ind]).unwrap();
         self.es[ind] += 1;
-        if !(self.value <= bound) {
-            self.set_e(ind, 0);
-            return false
+        if self.value > bound {
+            let r = self.clone();
+            // this also resets the value correctly
+            self.set_e(ind, e);
+            return Some(r);
         }
-        return true;
+        None
     }
 
-    pub fn inc_vec_with_bound(&mut self, bound: u128) -> bool {
+    pub fn inc_vec_with_bound_rst(&mut self, bound: u128, rst: &Self) -> Vec<Self> {
         // increment the number represented by the exponents
-        // return false if no increment would be possible without surpassing the bound
+        // return the values generated when trying to increment that surpassed the bound
+        let mut ret = vec![];
         for i in 0..self.es.len() {
-            if self.try_inc_ind(bound, i) {
-                return true;
+            match self.try_inc_ind_rst(bound, i, rst.es[i]) {
+                None => return ret,
+                Some(v) => ret.push(v),
             }
         }
-        return false;
+        return ret;
     }
 
-    pub fn is_x_smooth(&self, x: usize) -> bool {
-        !self.es
-            .iter()
-            .enumerate()
-            .any(|(i, &e)| e != 0 && PRIMES[i] > x)
-    }
-
-    pub fn one() -> Self {
-        Composite{value: 1, es: vec![0]}
+    pub fn one(len: usize) -> Self {
+        Composite{value: 1, es: vec![0; len]}
     }
 }
 
