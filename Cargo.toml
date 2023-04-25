@@ -10,7 +10,6 @@ primal = "0.3.2"
 f128 = "0.2.9"
 once_cell = "1.17.1"
 integer-sqrt = "0.1.5"
-closure = "0.3.0"
 rayon = "1.7.0"
 
 [profile.release]

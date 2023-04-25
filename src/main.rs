@@ -64,11 +64,13 @@ fn main() {
     let get_ind = |val: u128, c: f64| {find_highest_prime_ind_below(get_prime_bound(right(val)+1, c))};
     let num_threads = thread::available_parallelism().unwrap().get();
     println!("Detected {num_threads}-parallelism.");
+    // TODO: why are no gaps reported when basically no numbers? How to do
+    // seeds correctly?
     while smooths.lower_bound < n {
         //println!("Start of outermost loop - not reached {n} yet");
         // iterate over current range of smooth numbers
         while cur < smooths.smooths.len() {
-            let cur_val = smooths.smooths[cur];
+            let mut cur_val = smooths.smooths[cur];
             //println!("Still iterating through current smooth numbers ({cur_val}) {cur} < {}", smooths.smooths.len());
             let mut ind = get_ind(cur_val, c);
             // add new smooth numbers
@@ -76,11 +78,12 @@ fn main() {
 
             // inner loop for trying to add primes without stretching c
             while cur < smooths.smooths.len() {
+                cur_val = smooths.smooths[cur];
                 // since it is really rare that there is no smooth number in the interval of
                 // interest, we parallelize the search
                 let step_width: usize = 1 << 20;
                 // returns Some(x) if for index x the gap is too big
-                let do_part = |i: usize| -> Option<usize> {
+                let check_gap = |i: usize| -> Option<usize> {
                     let start = min(i*step_width, smooths.smooths.len()-1);
                     let stop = min((i+1)*step_width, smooths.smooths.len()-1);
                     for x in start..stop {
@@ -93,7 +96,7 @@ fn main() {
                 let rets: Vec<usize> = thread::scope(|s| {
                     let mut handles = vec![];
                     for i in 0..num_threads {
-                        let h = s.spawn(move || do_part(i));
+                        let h = s.spawn(move || check_gap(i));
                         handles.push(h);
                     }
                     handles.into_iter().filter_map(|h| h.join().unwrap()).collect()
@@ -123,11 +126,10 @@ fn main() {
                 println!("Setting c={c}");
             }
         }
-        let new_upper_bound = min(smooths.upper_bound + (smooths.upper_bound>>1), n);
+        let new_upper_bound = min(4*smooths.upper_bound, n);
         println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
         smooths.next(new_upper_bound);
         println!("Done setting upper bound");
     }
     println!("Done!");
 }
-//TODO: avoid sorting + storing, other technique?
