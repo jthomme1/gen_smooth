@@ -53,8 +53,8 @@ fn main() {
     }
     let n = u128::from_str_radix(&args[1], 10).unwrap();
     // index to the current smooth number we consider
-    let mut cur: usize = 0;
     let mut smooths = Smooths::new();
+    let mut cur: usize = smooths.find_ind_le(2).unwrap();
     let mut c = 1f64;
     // the interval covered by a smooth number (may be off by one because of integer sqrt, but this
     // is not important for the asymptotic behaviour of c)
@@ -63,25 +63,26 @@ fn main() {
     // fn to get the index of the biggest prime below the bound for val and c
     let get_ind = |val: u128, c: f64| {find_highest_prime_ind_below(get_prime_bound(right(val)+1, c))};
     println!("Detected {}-parallelism.", *NUM_THREADS);
-    //TODO: probablisticly save that there was a smooth number in a certain interval?
     loop {
         // iterate over current range of smooth numbers
-        while cur < smooths.smooths.len() {
-            let mut ind = get_ind(smooths.smooths[cur], c);
+        // we go only until the second to last element as there is no gap to consider for the last
+        // element
+        while cur < smooths.len()-1 {
+            let mut ind = get_ind(smooths.get(cur), c);
             // add new smooth numbers
-            smooths.add_primes(ind, smooths.smooths[cur]);
+            smooths.add_primes(ind);
 
             // inner loop for trying to add primes without stretching c
-            while cur < smooths.smooths.len() {
+            while cur < smooths.len()-1 {
                 // since it is really rare that there is no smooth number in the interval of
                 // interest, we parallelize the search
                 let step_width: usize = 1 << 20;
                 // returns Some(x) if for index x the gap is too big
                 let check_gap = |i: usize| -> Option<usize> {
-                    let start = min(i*step_width, smooths.smooths.len()-1);
-                    let stop = min((i+1)*step_width, smooths.smooths.len()-1);
+                    let start = min(i*step_width, smooths.len()-1);
+                    let stop = min((i+1)*step_width, smooths.len()-1);
                     for x in start..stop {
-                        if left(smooths.smooths[x+1]) > right(smooths.smooths[x]) {
+                        if left(smooths.get(x+1)) > right(smooths.get(x)) {
                             return Some(x);
                         }
                     }
@@ -97,36 +98,37 @@ fn main() {
                 });
                 match rets.iter().min() {
                     Some(&x) => {
-                        // the gap was too big, try to add more smooth numbers
-                        let new_ind = get_ind(smooths.smooths[x], c);
                         cur = x;
+                        // the gap was too big, try to add more smooth numbers
+                        let new_ind = get_ind(smooths.get(cur), c);
                         if new_ind == ind {
                             // if we were not adding any new smooth numbers, c is too small
                             break;
                         }
                         ind = new_ind;
-                        smooths.add_primes(ind, smooths.smooths[cur]);
+                        smooths.add_primes(ind);
                     },
                     None => {
                         // advance normally if no gap was found
-                        cur = min(cur+*NUM_THREADS*step_width, smooths.smooths.len());
+                        cur = min(cur+*NUM_THREADS*step_width, smooths.len()-1);
                     },
                 }
             }
-            if cur < smooths.smooths.len() {
+            if cur < smooths.len()-1 {
                 // we broke out of the loop without finishing -> c has to be increased
-                println!("Gap at {} for c={c}", smooths.smooths[cur]);
+                println!("Gap at {} for c={c}", smooths.get(cur));
                 c *= 1.01;
                 println!("Setting c={c}");
             }
         }
-        let new_upper_bound = min(2*smooths.upper_bound, n);
+        let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
         if new_upper_bound == smooths.upper_bound {
             break
         } else {
             println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
-            smooths.next(new_upper_bound);
-            cur = 0;
+            let cur_val = smooths.get(cur);
+            smooths.advance(new_upper_bound);
+            cur = smooths.find_ind_le(cur_val).unwrap();
             println!("Done setting upper bound");
         }
     }
