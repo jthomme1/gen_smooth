@@ -4,7 +4,7 @@ use super::PRIMES;
 
 #[derive(Eq, Debug)]
 pub struct Composite {
-    pub value: u128,
+    pub value: u64,
     pub es: Vec<u32>,
 }
 
@@ -15,25 +15,25 @@ impl Composite {
         let value = es
             .iter()
             .enumerate()
-            .fold(1u128, |acc, (i, &e)| acc*u128::try_from(PRIMES[i]).unwrap().pow(e.into()));
+            .fold(1u64, |acc, (i, &e)| acc*u64::try_from(PRIMES[i]).unwrap().pow(e.into()));
         Composite{value, es}
     }
 
     fn set_e(&mut self, ind: usize, new_e: u32) {
         let old_e = self.es[ind];
         if old_e > new_e {
-            let change = u128::try_from(PRIMES[ind]).unwrap().pow(old_e - new_e);
+            let change = u64::try_from(PRIMES[ind]).unwrap().pow(old_e - new_e);
             self.value /= change
         } else {
-            let change = u128::try_from(PRIMES[ind]).unwrap().pow(new_e - old_e);
+            let change = u64::try_from(PRIMES[ind]).unwrap().pow(new_e - old_e);
             self.value *= change
         }
         self.es[ind] = new_e;
     }
 
-    pub fn try_inc_ind(&mut self, bound: u128, ind: usize) -> bool {
+    pub fn try_inc_ind(&mut self, bound: u64, ind: usize) -> bool {
         // try to increment the exponent at index ind and set it to 0 otherwise
-        let p = u128::try_from(PRIMES[ind]).unwrap();
+        let p = u64::try_from(PRIMES[ind]).unwrap();
         if bound/p < self.value {
             self.set_e(ind, 0);
             return false;
@@ -44,7 +44,7 @@ impl Composite {
         true
     }
 
-    pub fn inc_vec_with_bound(&mut self, bound: u128) {
+    pub fn inc_vec_with_bound(&mut self, bound: u64) {
         // increment the number represented by the exponents
         for i in 0..self.es.len() {
             if self.try_inc_ind(bound, i) {
