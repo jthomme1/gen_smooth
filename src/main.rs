@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use integer_sqrt::IntegerSquareRoot;
 use primal;
 use std::thread;
-use std::cmp::min;
+use std::cmp::{min, max};
 use std::env;
 
 pub mod composite;
@@ -18,11 +18,11 @@ static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().u
 
 // we get the logarithm using 128bit floating numbers
 fn get_prime_bound(n: u128, c: f64) -> usize {
-    unsafe {
+    max(2, unsafe {
         ffi::powq_f(ffi::log2q_f(f128::f128::new(n)), c.into())
             .try_into()
             .unwrap()
-    }
+    })
 }
 
 fn find_highest_prime_ind_below(u: usize) -> usize {
@@ -62,23 +62,17 @@ fn main() {
     let left = |x: u128| {x - 2u128*x.integer_sqrt() + 1u128};
     // fn to get the index of the biggest prime below the bound for val and c
     let get_ind = |val: u128, c: f64| {find_highest_prime_ind_below(get_prime_bound(right(val)+1, c))};
-    let num_threads = thread::available_parallelism().unwrap().get();
-    println!("Detected {num_threads}-parallelism.");
-    // TODO: why are no gaps reported when basically no numbers? How to do
-    // seeds correctly?
-    while smooths.lower_bound < n {
-        //println!("Start of outermost loop - not reached {n} yet");
+    println!("Detected {}-parallelism.", *NUM_THREADS);
+    //TODO: probablisticly save that there was a smooth number in a certain interval?
+    loop {
         // iterate over current range of smooth numbers
         while cur < smooths.smooths.len() {
-            let mut cur_val = smooths.smooths[cur];
-            //println!("Still iterating through current smooth numbers ({cur_val}) {cur} < {}", smooths.smooths.len());
-            let mut ind = get_ind(cur_val, c);
+            let mut ind = get_ind(smooths.smooths[cur], c);
             // add new smooth numbers
-            smooths.add_primes(ind, cur_val);
+            smooths.add_primes(ind, smooths.smooths[cur]);
 
             // inner loop for trying to add primes without stretching c
             while cur < smooths.smooths.len() {
-                cur_val = smooths.smooths[cur];
                 // since it is really rare that there is no smooth number in the interval of
                 // interest, we parallelize the search
                 let step_width: usize = 1 << 20;
@@ -95,7 +89,7 @@ fn main() {
                 };
                 let rets: Vec<usize> = thread::scope(|s| {
                     let mut handles = vec![];
-                    for i in 0..num_threads {
+                    for i in 0..*NUM_THREADS{
                         let h = s.spawn(move || check_gap(i));
                         handles.push(h);
                     }
@@ -105,17 +99,17 @@ fn main() {
                     Some(&x) => {
                         // the gap was too big, try to add more smooth numbers
                         let new_ind = get_ind(smooths.smooths[x], c);
+                        cur = x;
                         if new_ind == ind {
                             // if we were not adding any new smooth numbers, c is too small
                             break;
                         }
                         ind = new_ind;
-                        cur = x;
-                        smooths.add_primes(ind, cur_val);
+                        smooths.add_primes(ind, smooths.smooths[cur]);
                     },
                     None => {
                         // advance normally if no gap was found
-                        cur = min(cur+num_threads*step_width, smooths.smooths.len());
+                        cur = min(cur+*NUM_THREADS*step_width, smooths.smooths.len());
                     },
                 }
             }
@@ -126,10 +120,15 @@ fn main() {
                 println!("Setting c={c}");
             }
         }
-        let new_upper_bound = min(4*smooths.upper_bound, n);
-        println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
-        smooths.next(new_upper_bound);
-        println!("Done setting upper bound");
+        let new_upper_bound = min(2*smooths.upper_bound, n);
+        if new_upper_bound == smooths.upper_bound {
+            break
+        } else {
+            println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
+            smooths.next(new_upper_bound);
+            cur = 0;
+            println!("Done setting upper bound");
+        }
     }
     println!("Done!");
 }

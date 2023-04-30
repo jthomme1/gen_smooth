@@ -2,7 +2,7 @@ use std::cmp::{PartialEq, PartialOrd, Ord, Ordering, Eq};
 use std::fmt;
 use super::PRIMES;
 
-const NUMBER_EXP: usize = 64;
+const NUMBER_EXP: usize = 32;
 
 #[derive(Eq, Copy, Clone)]
 pub struct Composite {
@@ -33,20 +33,37 @@ impl Composite {
         self.es[ind] = new_e;
     }
 
-    pub fn try_inc_ind(&mut self, bound: u128, ind: usize) -> Option<Self> {
+    pub fn try_inc_ind(&mut self, bound: u128, ind: usize) -> bool {
         // try to increment the exponent at index ind and set it to 0 otherwise
         // returns None on success and Some(composite number) if it surpasses our bound
         self.value *= u128::try_from(PRIMES[ind]).unwrap();
         self.es[ind] += 1;
         if self.value > bound {
-            let r = self.clone();
             // this also resets the value correctly
             self.set_e(ind, 0);
-            return Some(r);
+            return false;
         }
-        None
+        true
     }
 
+    pub fn inc_vec_with_bound_exp(&mut self, bound: u128, exp: usize) {
+        // increment the number represented by the exponents
+        for i in 0..exp {
+            if self.try_inc_ind(bound, i) {
+                break;
+            }
+        }
+    }
+
+    pub fn inc_vec_with_bound(&mut self, bound: u128) {
+        // increment the number represented by the exponents
+        for i in 0..self.es.len() {
+            if self.try_inc_ind(bound, i) {
+                break;
+            }
+        }
+    }
+    /*
     pub fn highest_exp(&self) -> usize {
         let mut i = NUMBER_EXP-1;
         while self.es[i] == 0 {
@@ -54,23 +71,7 @@ impl Composite {
         }
         i
     }
-/*
-    pub fn inc_vec_with_bound_rst(&mut self, bound: u128, rst: &Self) -> Vec<Self> {
-        // increment the number represented by the exponents
-        // return the values generated when trying to increment that surpassed the bound
-        let mut ret = vec![];
-        for i in 0..self.es.len() {
-            match self.try_inc_ind_rst(bound, i, rst.es[i]) {
-                None => return ret,
-                Some(v) => ret.push(v),
-            }
-        }
-        return ret;
-    }
-    pub fn one() -> Self {
-        Self::new(0, 0)
-    }
-*/
+    */
 }
 
 impl Ord for Composite {

@@ -4,26 +4,47 @@ use super::{PRIMES};
 use std::thread;
 use rayon::prelude::*;
 
-struct SmoothsFixedPrimes {
-    pub prime_ind: usize,
+pub struct Smooths {
+    // lower_bound < x <= upper_bound
     pub lower_bound: u128,
     pub upper_bound: u128,
-    pub seeds: Vec<Composite>,
+    primes: usize,
+    pub small_smooths: Vec<u64>,
+    pub big_smooths: Vec<u128>,
 }
 
-impl SmoothsFixedPrimes {
-
-    pub fn new(lower_bound: u128, upper_bound: u128, prime_ind: usize) -> Self {
-        SmoothsFixedPrimes{
-            prime_ind: prime_ind,
-            lower_bound: lower_bound,
-            upper_bound: upper_bound,
-            seeds: vec![]
-        }
+impl Smooths {
+    pub fn new() -> Self {
+        let mut ret = Smooths{
+            lower_bound: 1,
+            upper_bound: 1<<40,
+            primes: 0,
+            small_smooths: vec![],
+            big_smooths: vec![]
+        };
+        // we always already add the 2 smooth numbers
+        ret.add_primes(0);
+        ret
     }
 
-    pub fn init_gen(&mut self) -> Vec<u128> {
-        let ind = self.prime_ind;
+    pub fn add_primes(&mut self, ind: usize) {
+        // if the primes have already been added, do nothing
+        if ind+1 <= self.primes {
+            return;
+        }
+        for i in self.primes..ind+1 {
+            let (small, big) = self.init_gen(i);
+            self.small_smooths.append(small);
+            self.big_smooths.append(big);
+        }
+        println!("Sorting all together");
+        // sort in parallel
+        self.small_smooths.par_sort_unstable();
+        self.big_smooths.par_sort_unstable();
+        println!("Done adding primes");
+    }
+
+    pub fn init_gen(&self, ind: usize) -> (Vec<u64>, Vec<u128>) {
         let prime = PRIMES[ind];
         let lower_bound = self.lower_bound;
         let upper_bound = self.upper_bound;
@@ -32,141 +53,155 @@ impl SmoothsFixedPrimes {
         let generate_with_fixed = |e_val: u8| {
             let mut c = Composite::new(ind, e_val);
 
-            let mut new_smooths: Vec<u128> = vec![];
-            //let mut new_seeds: Vec<Composite> = vec![];
+            let mut new_small: Vec<u64> = vec![];
+            let mut new_big: Vec<u128> = vec![];
             let mut add_if_greater = |c: &Composite| {
                 // the upper bound is already checked when generating the number
                 if lower_bound < c.value {
-                    new_smooths.push(c.value);
+                    if c.value <= u128::from(u64::MAX) {
+                        new_small.push(u64::try_from(c.value).unwrap());
+                    } else {
+                        new_big.push(c.value);
+                    }
                 }
             };
             add_if_greater(&c);
             // we break if the fixed exponent would change
             loop {
-                for i in 0..ind+1 {
-                    match c.try_inc_ind(upper_bound, i) {
-                        Some(s) => continue,//new_seeds.push(s),
-                        None => break,
-                    }
-                }
+                c.inc_vec_with_bound(upper_bound, ind);
                 if c.es[ind] == e_val {
                     add_if_greater(&c);
                 } else {
                     break
                 }
             }
-            new_smooths
+            (new_small, new_big)
         };
         // for each possible exponent we start a thread
-        let mut rets: Vec<u128> = thread::scope(|s| {
+        let mut (small, big) = thread::scope(|s| {
             let mut handles = vec![];
             let p128: u128 = u128::try_from(prime).unwrap();
             let mut p: u128 = p128;
             let mut i = 1;
-            while p <= self.upper_bound {
+            while p <= upper_bound {
                 let h = s.spawn(move || generate_with_fixed(i));
                 handles.push(h);
                 i += 1;
                 p *= p128;
             }
-            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
-        });
-        rets.par_sort_unstable();
-        println!("{}: Generated {} smooth numbers", prime, rets.len());
-        rets
-    }
-/*
-    pub fn generate_smooths(&mut self, new_upper_bound: u128) -> Vec<u128> {
-        assert!(new_upper_bound >= self.upper_bound);
-
-        let mut rets: (Vec<u128>, Vec<Composite>) = thread::scope(|s| {
-            let gen_from_seeds = |i: usize| {
-                let mut new_smooths = vec![];
-                let mut new_seeds = vec![];
-                for si in (i..self.seeds.len()).step_by(*NUM_THREADS) {
-                    let s = &self.seeds[si];
-                    if s.value > new_upper_bound {
-                        new_seeds.push(s.clone());
-                        continue;
-                    }
-                    let mut r = s.clone();
-                    let h_ind = r.highest_exp();
-                    while r.value >= bef {
-                        println!("{}: From seed {s}, produced smooth {}", PRIMES[self.prime_ind], r.value);
-                        new_smooths.push(r.value);
-                        bef = r.value;
-                        for j in 0..h_ind+1 {
-                            match r.try_inc_ind(new_upper_bound, j) {
-                                Some(n) => {new_seeds.push(n); println!("{}: From seed {s}, produced new seed {n}", PRIMES[self.prime_ind]);},
-                                None => break,
-                            }
-                        }
-                    }
-                }
-                (new_smooths, new_seeds)
-            };
-            let mut handles = vec![];
-            for i in 0..*NUM_THREADS {
-                handles.push(s.spawn(move || gen_from_seeds(i)));
-            }
-            let v: (Vec<Vec<u128>>, Vec<Vec<Composite>>) = handles.into_iter().map(|h| h.join().unwrap()).unzip();
+            let v: (Vec<Vec<u64>>, Vec<Vec<u128>>) = handles.into_iter().map(|h| h.join().unwrap()).unzip();
             (v.0.concat(), v.1.concat())
         });
-
-        self.lower_bound = self.upper_bound;
-        self.upper_bound = new_upper_bound;
-        rets.1.par_sort_unstable();
-        println!("{}: Generated {} seeds: {:?}", PRIMES[self.prime_ind], rets.1.len(), rets.1);
-        self.seeds = rets.1;
-        rets.0.par_sort_unstable();
-        println!("{}: Generated {} smooth numbers: {:?}", PRIMES[self.prime_ind], rets.0.len(), rets.0);
-        rets.0
-    }
-    */
-}
-
-pub struct Smooths {
-    // lower_bound < x <= upper_bound
-    pub lower_bound: u128,
-    pub upper_bound: u128,
-    gens: Vec<SmoothsFixedPrimes>,
-    pub smooths: Vec<u128>,
-}
-
-impl Smooths {
-    pub fn new() -> Self {
-        let mut ret = Smooths{lower_bound: 1, upper_bound: 200, gens: vec![], smooths: vec![]};
-        // we always already add the 2 smooth numbers
-        ret.add_primes(0, 1);
-        ret
+        small.par_sort_unstable();
+        big.par_sort_unstable();
+        println!("{}: Generated {} small smooth numbers", prime, small.len());
+        println!("{}: Generated {} big smooth numbers", prime, big.len());
+        (small, big)
     }
 
-    pub fn add_primes(&mut self, ind: usize, lower_bound: u128) {
-        // if the prime has already been added, do nothing
-        if ind+1 <= self.gens.len() {
-            return;
+    pub fn find_big_ind_gt(&self, b: u128) -> Option<usize> {
+        if self.big.len() == 0 || self.big[self.big.len()-1] <= b {
+            return None;
         }
-        for i in self.gens.len()..ind+1 {
-            let mut gen = SmoothsFixedPrimes::new(lower_bound, self.upper_bound, i);
-            self.smooths.append(&mut gen.init_gen());
-            self.gens.push(gen);
+        let ind = match self.big.binary_search(b) {
+            Ok(x) => x+1,
+            Err(x) => x,
         }
-        println!("Sorting all together");
-        // sort in parallel
-        self.smooths.par_sort_unstable();
-        println!("Done sorting all together");
+        Some(ind)
     }
 
-    pub fn get(&self, index: usize) -> Option<u128> {
-        if index == self.smooths.len() {
-            None
-        } else {
-            Some(self.smooths[index])
+    pub fn find_small_ind_gt(&self, big_b: u128) -> Option<usize> {
+        if self.small.len() == 0 || self.small[self.small.len()-1] <= big_b {
+            return None;
         }
+        let b = match u64::try_from(big_b) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
+        let ind = match self.small.binary_search(b) {
+            Ok(x) => x+1,
+            Err(x) => x,
+        }
+        Some(ind)
     }
 
-    pub fn next(&mut self, new_upper_bound: u128) {
-        self.smooths.clear();
+    pub fn find_big_ind_le(&self, b: u128) -> Option<usize> {
+        if self.big.len() == 0 || self.big[0] > b {
+            return None;
+        }
+        let ind = match self.big.binary_search(b) {
+            Ok(x) => x,
+            Err(x) => x-1,
+        }
+        Some(ind)
+    }
+
+    pub fn find_small_ind_le(&self, big_b: u128) -> Option<usize> {
+        if self.small.len() == 0 || self.small[0] > big_b {
+            return None;
+        }
+        let b = match u64::try_from(big_b) {
+            Ok(b) => b,
+            Err(_) => return Some(self.small.len()-1),
+        };
+        let ind = match self.small.binary_search(b) {
+            Ok(x) => x+1,
+            Err(x) => x,
+        }
+        Some(ind)
+    }
+
+    pub fn advance_small(&self, low_ind: usize, high_ind: usize) -> (Vec<u64>, Vec<u128) {
+    }
+
+    // we would produce every number exactly once per prime involved. In order to not duplicate the
+    // generation, let each number be generated only by the largest prime involved.
+    // -> we need to know the largest prime involved.
+    // Thus, we store each smooth number with the generator belonging to the highest prime
+    // involved.
+    // In order to generate the smooth numbers up to the new bound, for each prime p, we need to go
+    // over the smooth numbers of the less_or_equal primes. For every prime q, we consider the range
+    // (upper_bound/p, new_upper_bound/p) and multiply the numbers in that range by p.
+    pub fn advance_big(&self, low_ind: usize, high_ind: usize) -> (Vec<u64>, Vec<u128) {
+    }
+
+    pub fn advance(&mut self, new_upper_bound: u128) {
+        // we need the new upper bound to not be more than two times the old one
+        assert!(new_upper_bound/2 <= self.upper_bound);
+        // get the elements of big and small in range: upper_bound/p until new_upper_bound/p
+        thread::scope(|s| {
+            let mut handles = vec![];
+            for i in 0..self.primes {
+                let p = PRIMES[i];
+                let lower = self.upper_bound/p;
+                let upper = new_upper_bound/p;
+                // small: 3 cases.
+                //   1: lower and upper both inside
+                //   2: only lower inside
+                //   3: none inside
+                if let Some(low_ind) = self.find_small_ind_gt(lower) {
+                    let high_ind = self.find_small_ind_le(upper).unwrap();
+                    let h = s.spawn(|| something_small(low_ind, high_ind));
+                    handles.push(h);
+                }
+                // big: 3 cases.
+                //   1: lower and upper both inside
+                //   2: only upper inside
+                //   3: none inside
+                if let Some(high_ind) = self.find_big_ind_le(upper) {
+                    let low_ind = self.find_big_ind_gt(lower).unwrap();
+                    let h = s.spawn(|| something_big(low_ind, high_ind));
+                    handles.push(h);
+                }
+            }
+            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
+        });
+        find_first_big_ind_gt(self.upper_bound/p)
+        // construct the new elements
+        // merge and sort them
+        // add them to small and big
+        // retain last element
+        self.smooths = vec![self.smooths[self.smooths.len()-1]];
         self.smooths = thread::scope(|s| {
             let mut handles = vec![];
             for g in self.gens.iter_mut() {
