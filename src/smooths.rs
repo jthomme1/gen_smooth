@@ -33,6 +33,10 @@ impl Smooths {
         self.smooths[ind]
     }
 
+    pub fn ind(&self) -> usize {
+        self.primes
+    }
+
     pub fn add_primes(&mut self, ind: usize) {
         // if the primes have already been added, do nothing
         if ind+1 <= self.primes {
