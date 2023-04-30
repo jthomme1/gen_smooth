@@ -62,9 +62,6 @@ impl Smooths {
             let mut add_if_greater = |c: &Composite| {
                 // the upper bound is already checked when generating the number
                 if lower_bound < c.value {
-                    // encode the highest prime in the least significant bits
-                    // assumes that less that 256 primes are used and the number is less than
-                    // 2**120
                     smooths.push(c.value);
                 }
             };

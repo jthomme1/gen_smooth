@@ -58,7 +58,12 @@ fn main() {
     let mut c = 1f64;
     // the interval covered by a smooth number (may be off by one because of integer sqrt, but this
     // is not important for the asymptotic behaviour of c)
-    let right = |x: u64| {x + 2u64*x.integer_sqrt() + 1u64};
+    let right = |x: u64| {
+        if u64::MAX - 2u64*x.integer_sqrt() - 1u64 < x {
+            return u64::MAX;
+        }
+        x + 2u64*x.integer_sqrt() + 1u64
+    };
     let left = |x: u64| {x - 2u64*x.integer_sqrt() + 1u64};
     // fn to get the index of the biggest prime below the bound for val and c
     let get_ind = |val: u64, c: f64| {find_highest_prime_ind_below(get_prime_bound(right(val)+1, c))};
