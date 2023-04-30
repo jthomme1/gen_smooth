@@ -35,6 +35,10 @@ impl Smooths {
         self.smooths[ind]>>8
     }
 
+    pub fn ind(&self) -> usize {
+        self.primes
+    }
+
     pub fn print_smooths(&self) {
         print!("[");
         for i in self.smooths.iter() {

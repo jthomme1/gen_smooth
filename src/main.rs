@@ -68,10 +68,6 @@ fn main() {
         // we go only until the second to last element as there is no gap to consider for the last
         // element
         while cur < smooths.len()-1 {
-            let mut ind = get_ind(smooths.get(cur), c);
-            // add new smooth numbers
-            smooths.add_primes(ind);
-
             // inner loop for trying to add primes without stretching c
             while cur < smooths.len()-1 {
                 // since it is really rare that there is no smooth number in the interval of
@@ -101,12 +97,11 @@ fn main() {
                         cur = x;
                         // the gap was too big, try to add more smooth numbers
                         let new_ind = get_ind(smooths.get(cur), c);
-                        if new_ind == ind {
+                        if new_ind+1 <= smooths.ind() {
                             // if we were not adding any new smooth numbers, c is too small
                             break;
                         }
-                        ind = new_ind;
-                        smooths.add_primes(ind);
+                        smooths.add_primes(smooths.ind());
                     },
                     None => {
                         // advance normally if no gap was found
@@ -119,6 +114,8 @@ fn main() {
                 println!("Gap at {} for c={c}", smooths.get(cur));
                 c *= 1.01;
                 println!("Setting c={c}");
+                // add new smooth numbers
+                smooths.add_primes(get_ind(smooths.get(cur), c));
             }
         }
         let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
