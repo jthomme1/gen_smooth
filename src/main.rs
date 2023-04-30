@@ -75,8 +75,8 @@ fn main() {
                 let step_width: usize = 1 << 20;
                 // returns Some(x) if for index x the gap is too big
                 let check_gap = |i: usize| -> Option<usize> {
-                    let start = min(i*step_width, smooths.len()-1);
-                    let stop = min((i+1)*step_width, smooths.len()-1);
+                    let start = min(cur+i*step_width, smooths.len()-1);
+                    let stop = min(cur+(i+1)*step_width, smooths.len()-1);
                     for x in start..stop {
                         if left(smooths.get(x+1)) > right(smooths.get(x)) {
                             return Some(x);
@@ -101,7 +101,10 @@ fn main() {
                             // if we were not adding any new smooth numbers, c is too small
                             break;
                         }
+                        let cur_val = smooths.get(cur);
                         smooths.add_primes(smooths.ind());
+                        cur = smooths.find_ind_le(cur_val).unwrap();
+                        assert!(cur_val == smooths.get(cur));
                     },
                     None => {
                         // advance normally if no gap was found
@@ -115,9 +118,13 @@ fn main() {
                 c *= 1.01;
                 println!("Setting c={c}");
                 // add new smooth numbers
+                let cur_val = smooths.get(cur);
                 smooths.add_primes(get_ind(smooths.get(cur), c));
+                cur = smooths.find_ind_le(cur_val).unwrap();
+                assert!(cur_val == smooths.get(cur));
             }
         }
+        assert!(cur == smooths.len()-1);
         let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
         if new_upper_bound == smooths.upper_bound {
             break
@@ -129,5 +136,5 @@ fn main() {
             println!("Done setting upper bound");
         }
     }
-    println!("Done!");
+    println!("Done {} {}", cur, smooths.get(cur-1));
 }
