@@ -1,8 +1,10 @@
 use std::vec::Vec;
+use std::cmp::min;
 use crate::composite::Composite;
 use super::{PRIMES};
 use std::thread;
 use rayon::prelude::*;
+use std::io::{self, Write};
 
 pub struct Smooths {
     // lower_bound < x <= upper_bound
@@ -13,10 +15,10 @@ pub struct Smooths {
 }
 
 impl Smooths {
-    pub fn new() -> Self {
+    pub fn new(bound: u128) -> Self {
         let mut ret = Smooths{
             lower_bound: 1,
-            upper_bound: 1<<40,
+            upper_bound: min(1<<40, bound),
             primes: 0,
             smooths: vec![]
         };
@@ -31,6 +33,15 @@ impl Smooths {
 
     pub fn get(&self, ind: usize) -> u128 {
         self.smooths[ind]>>8
+    }
+
+    pub fn print_smooths(&self) {
+        print!("[");
+        for i in self.smooths.iter() {
+            print!("{}, ", i>>8);
+        }
+        print!("]\n");
+        io::stdout().flush().unwrap();
     }
 
     pub fn add_primes(&mut self, ind: usize) {
@@ -53,7 +64,6 @@ impl Smooths {
         let prime = PRIMES[ind];
         let lower_bound = self.lower_bound;
         let upper_bound = self.upper_bound;
-        //println!("{}: Initial generation of smooth numbers", prime);
         // generate all smooth numbers with a fixed exponent for the new prime
         let generate_with_fixed = |e_val: u32| {
             let mut c = Composite::new(ind, e_val);

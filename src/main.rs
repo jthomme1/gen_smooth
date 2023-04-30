@@ -53,7 +53,7 @@ fn main() {
     }
     let n = u128::from_str_radix(&args[1], 10).unwrap();
     // index to the current smooth number we consider
-    let mut smooths = Smooths::new();
+    let mut smooths = Smooths::new(n);
     let mut cur: usize = smooths.find_ind_le(2).unwrap();
     let mut c = 1f64;
     // the interval covered by a smooth number (may be off by one because of integer sqrt, but this
