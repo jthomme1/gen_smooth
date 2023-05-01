@@ -188,7 +188,7 @@ impl Smooths {
             handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u64>>>().concat()
         });
         smooths.par_sort_unstable();
-        let lower_bound_factor = u64::try_from(PRIMES[self.primes+1]).unwrap();
+        let lower_bound_factor = u64::try_from(PRIMES[self.primes+3]).unwrap();
         self.lower_bound = new_upper_bound/lower_bound_factor;
         self.upper_bound = new_upper_bound;
         let ind = self.find_ind_le(self.lower_bound).unwrap()+1;
