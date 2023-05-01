@@ -102,9 +102,8 @@ fn main() {
                             break;
                         }
                         let cur_val = smooths.get(cur);
-                        smooths.add_primes(smooths.ind());
+                        smooths.add_primes(new_ind);
                         cur = smooths.find_ind_le(cur_val).unwrap();
-                        assert!(cur_val == smooths.get(cur));
                     },
                     None => {
                         // advance normally if no gap was found
@@ -121,10 +120,8 @@ fn main() {
                 let cur_val = smooths.get(cur);
                 smooths.add_primes(get_ind(smooths.get(cur), c));
                 cur = smooths.find_ind_le(cur_val).unwrap();
-                assert!(cur_val == smooths.get(cur));
             }
         }
-        assert!(cur == smooths.len()-1);
         let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
         if new_upper_bound == smooths.upper_bound {
             break

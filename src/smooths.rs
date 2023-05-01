@@ -168,7 +168,7 @@ impl Smooths {
                 let p = u128::try_from(PRIMES[i]).unwrap();
                 let lower = self.upper_bound/p;
                 let upper = new_upper_bound/p;
-                let low_ind = self.find_ind_gt(lower).unwrap();
+                let low_ind = self.find_ind_le(lower).unwrap()+1;
                 let high_ind = self.find_ind_le(upper).unwrap();
                 let h = s.spawn(move || produce(low_ind, high_ind, i));
                 handles.push(h);
@@ -176,18 +176,14 @@ impl Smooths {
             handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
         });
         smooths.par_sort_unstable();
-        /*
         let lower_bound_factor = u128::try_from(PRIMES[self.primes+1]).unwrap();
         self.lower_bound = new_upper_bound/lower_bound_factor;
-        */
         self.upper_bound = new_upper_bound;
-        /*
         let ind = self.find_ind_le(self.lower_bound).unwrap()+1;
         let new_len = self.smooths.len() - ind;
         let old_len = self.smooths.len();
         self.smooths.copy_within(ind..old_len, 0);
         self.smooths.truncate(new_len);
-        */
         self.smooths.append(&mut smooths);
     }
 }
