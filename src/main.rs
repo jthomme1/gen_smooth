@@ -79,8 +79,8 @@ fn main() {
             let step_width: usize = 1 << 20;
             // returns Some(x) if for index x the gap is too big
             let check_gap = |i: usize| -> Option<usize> {
-                let start = min(i*step_width, smooths.len()-1);
-                let stop = min((i+1)*step_width, smooths.len()-1);
+                let start = min(cur+i*step_width, smooths.len()-1);
+                let stop = min(cur+(i+1)*step_width, smooths.len()-1);
                 for x in start..stop {
                     if left(smooths.get(x+1)) > right(smooths.get(x)) {
                         return Some(x);
@@ -100,12 +100,10 @@ fn main() {
                 Some(&x) => {
                     cur = x;
                     // the gap was too big, try to add more smooth numbers
-                    let new_ind = get_ind(smooths.get(cur), c);
-                    if new_ind+1 <= smooths.ind() {
-                        // if we were not adding any new smooth numbers, c is too small
+                    if !smooths.add_primes(get_ind(smooths.get(cur), c), Some(cur)) {
                         break;
                     }
-                    smooths.add_primes(smooths.ind());
+                    cur = 0;
                 },
                 None => {
                     // advance normally if no gap was found
