@@ -1,190 +1,384 @@
 use std::vec::Vec;
-use std::cmp::min;
-use crate::composite::Composite;
-use super::{PRIMES};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use rayon::prelude::*;
-use std::io::{self, Write};
+use std::cmp::{max, min};
+use crate::composite::Composite;
+use bitvec::prelude::*;
+use integer_sqrt::IntegerSquareRoot;
+use once_cell::sync::Lazy;
+use super::PRIMES;
+
+static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().unwrap().get());
+
+fn counter_ind_to_bound(ind: usize) -> u64 {
+    1u64<<(2*(ind+1))
+}
+
+fn bucket_ind_to_counter_ind(ind: usize) -> usize {
+    usize::try_from((ind+1).ilog2()).unwrap()
+}
+
+fn counter_limit(ind: usize) -> usize {
+    (1<<(ind+1))-1
+}
+
+fn val_to_bucket_ind(val: u64) -> usize {
+    usize::try_from(val.integer_sqrt()).unwrap()-1
+}
+
+// this needs to be a power of 2
+fn nr_bitvecs(log_bound: usize) -> usize {
+    min(1<<((log_bound/2).ilog2()), *NUM_THREADS*2)
+}
+
+fn interval_width(log_bound: usize) -> usize {
+    (1<<(log_bound/2))/nr_bitvecs(log_bound)
+}
 
 pub struct Smooths {
-    // lower_bound < x <= upper_bound
-    pub lower_bound: u128,
-    pub upper_bound: u128,
-    primes: usize,
-    smooths: Vec<u128>,
+    pub log_bound: usize,
+    pub primes: usize,
+    // ~ for each even power of 2
+    pub full_counters: Vec<usize>,
+    // we check if there are no consecutive non-covered intervals, equivalently, every interval is
+    // covered by its neighbors
+    pub alt_counters: Vec<usize>,
+    pub intervals: Arc<Vec<Mutex<BitVec>>>,
+    pub full_filled: usize,
+    pub alt_filled: usize,
 }
 
 impl Smooths {
-    pub fn new(bound: u128) -> Self {
-        let mut ret = Smooths{
-            lower_bound: 1,
-            upper_bound: min(1<<40, bound),
-            primes: 0,
-            smooths: vec![]
+    pub fn new(log_bound: usize) -> Self {
+        let mut full_counters = vec![0; log_bound/2];
+        let mut alt_counters = vec![0; log_bound/2];
+        let mut tmp_mtxs = vec![];
+        for _ in 0..nr_bitvecs(log_bound) {
+            tmp_mtxs.push(Mutex::new(bitvec![0; interval_width(log_bound)]));
+        }
+        let intervals = Arc::new(tmp_mtxs);
+
+        println!("NUM_THREADS: {}, nr_bitvecs: {}, interval_width: {}", *NUM_THREADS, nr_bitvecs(log_bound), interval_width(log_bound));
+        let intw = interval_width(log_bound);
+        // we add 2**0 to 2**log_bound to avoid some edge cases later
+        for i in 0..=log_bound {
+            let ind = val_to_bucket_ind(1<<i);
+            let lock_ind = ind/intw;
+            let int_ind = ind%intw;
+            //println!("val: {}, ind: {ind}, lock_ind: {lock_ind}, int_ind: {int_ind}", 1<<i);
+            (*intervals[lock_ind].lock().unwrap()).set(int_ind, true);
+        }
+
+        for i in 0..log_bound/2 {
+            if i == 0 {
+                alt_counters[i] = 2;
+                full_counters[i] = 1;
+            } else if i == 1 {
+                alt_counters[i] = 6;
+                full_counters[i] = 2;
+            } else if i == 2 {
+                alt_counters[i] = 12;
+                full_counters[i] = full_counters[i-1] + 2;
+            } else {
+                alt_counters[i] = alt_counters[i-1] + 8;
+                full_counters[i] = full_counters[i-1] + 2;
+            }
+        }
+        Smooths {
+            log_bound: log_bound,
+            primes: 1,
+            full_counters: full_counters,
+            alt_counters: alt_counters,
+            intervals: intervals,
+            full_filled: 1,
+            alt_filled: 2,
+        }
+    }
+
+    pub fn add_prime(&mut self) {
+        self.init_gen(self.primes);
+        println!("Done with {}", PRIMES[self.primes]);
+        for i in 0..self.full_counters.len() {
+            //println!("{i}: full_cover: {}, alt_cover: {}, limit: {}", self.full_counters[i], self.alt_counters[i], counter_limit(i));
+            let val = counter_ind_to_bound(i).ilog2();
+            //let c = (PRIMES[self.primes] as f64).log(val as f64);
+            if self.full_counters[i] == counter_limit(i) && self.full_filled <= i {
+                //println!("2**{}: c <= {}", val, c);
+                println!("2**{}: fully covered", val);
+                self.full_filled = i+1;
+            }
+            if self.alt_counters[i] == 2*counter_limit(i) && self.alt_filled <= i {
+                //println!("2**{}: c >= {}", val, c);
+                println!("2**{}: alternatingly covered", val);
+                self.alt_filled = i+1;
+            }
+        }
+        self.primes += 1;
+    }
+
+    fn insert_smooths(smooths: &mut Vec<u64>, intervals: Arc<Vec<Mutex<BitVec>>>, log_bound: usize) -> (Vec<usize>, Vec<usize>) {
+        let intw = interval_width(log_bound);
+        let mut full_counters = vec![0; log_bound/2];
+        let mut alt_counters = vec![0; log_bound/2];
+        smooths.sort_unstable();
+        // find the indices of numbers from where on we need to lock a mutex until we need to
+        // lock it
+        // starts at the first index that needs the lock until the first index that doesn't need it
+        // anymore
+        let mut switch_ind = vec![];
+        for i in 0..nr_bitvecs(log_bound) {
+            // we need to lock a mutex starting from the interval preceeding the first interval
+            // covered by the mutex
+            let first_int = if i == 0 { 0 } else { i*intw-1 };
+            let last_int = if i == nr_bitvecs(log_bound)-1 { (i+1)*intw-1 } else { (i+1)*intw };
+            //println!("{:?}: We need lock {i} from interval {first_int} to {last_int}", thread::current().id());
+            let first_num = u64::try_from((first_int+1)*(first_int+1)).unwrap();
+            let last_num = u64::try_from((last_int+2)*(last_int+2)-1).unwrap();
+            //println!("{:?}: For lock {i}, this corresponds to the numbers from {first_num} to {last_num}", thread::current().id());
+            // the index when we need to lock the mutex
+            let first_ind = match smooths.binary_search(&first_num) {
+                Ok(i) => i,
+                Err(i) => i,
+            };
+            // the index when we need to unlock the mutex
+            let last_ind = match smooths.binary_search(&last_num) {
+                Ok(i) => i,
+                Err(i) => i,
+            };
+            //println!("{:?}: For this thread and lock {i}, the corresponding smooth numbers are: {} (with ind {first_ind}) to {} (with ind {last_ind})", thread::current().id(), smooths[first_ind], smooths[last_ind]);
+            switch_ind.push((first_ind, last_ind));
+            //println!("{:?}: All in all, we need lock {i} from index {first_ind} to {last_ind}", thread::current().id());
+        }
+        let set_interval = |ind: usize, locks: &mut Vec<MutexGuard<'_, BitVec>>, cur_lock_ind: usize| {
+            let lock_ind = ind/intw;
+            let int_ind = ind%intw;
+            // not faster unchecked
+            locks[lock_ind-cur_lock_ind].set(int_ind, true);
         };
-        // we always already add the 2 smooth numbers
-        ret.add_primes(0);
-        ret
-    }
 
-    pub fn len(&self) -> usize {
-        self.smooths.len()
-    }
+        let get_interval = |ind: usize, locks: &Vec<MutexGuard<'_, BitVec>>, cur_lock_ind: usize| -> bool {
+            let lock_ind = ind/intw;
+            let int_ind = ind%intw;
+            // not faster unchecked
+            *locks[lock_ind-cur_lock_ind].get(int_ind).unwrap()
+        };
 
-    pub fn get(&self, ind: usize) -> u128 {
-        self.smooths[ind]>>8
-    }
+        let mut insert = |ind: usize, /* val: u64,*/locks: &mut Vec<MutexGuard<'_, BitVec>>, cur_lock_ind: usize| {
+            //println!("Checking for {val} with ind {ind}, len_locks: {}", locks.len());
+            if !get_interval(ind, &locks, cur_lock_ind) {
+                //println!("Setting {ind} with val {val}");
+                set_interval(ind, locks, cur_lock_ind);
 
-    pub fn ind(&self) -> usize {
-        self.primes
-    }
+                // we can do this without having to worry about the bounds as the edge cases
+                // (intervals of the next counter covering an interval in a counter before) have
+                // been taken care of in the initialization by the insertion of the powers of 2
+                let prev = get_interval(ind-1, &locks, cur_lock_ind);
+                let after = get_interval(ind+1, &locks, cur_lock_ind);
 
-    pub fn print_smooths(&self) {
-        print!("[");
-        for i in self.smooths.iter() {
-            print!("{}, ", i>>8);
+                let mut add = 2;
+                if prev {
+                    add -= 1;
+                } else {
+                    add += 1;
+                }
+                if after {
+                    add -= 1;
+                } else {
+                    add += 1;
+                }
+
+                let range = bucket_ind_to_counter_ind(ind)..log_bound/2;
+
+                // we are never in the first interval of a counter
+                // neither in the last overall
+                // also, the first interval of the next counter is already covered by a power of 2
+                for i in range {
+                    full_counters[i] += 1;
+                    alt_counters[i] += add;
+                }
+            }
+        };
+
+        let mut locks = vec![intervals[0].lock().unwrap()];
+        for i in 0..nr_bitvecs(log_bound) {
+            // invariant: here, only intervals[i] is locked
+            // start with the numbers where only intervals[i] is needed
+            let from_s = if i == 0 {
+                switch_ind[i].0
+            } else {
+                // whatever comes later: the start of the current lock or one after the end of the
+                // previous one
+                max(switch_ind[i].0, switch_ind[i-1].1)
+            };
+            let to_s = if i == nr_bitvecs(log_bound)-1 {
+                switch_ind[i].1
+            } else {
+                // whatever comes first: the end of the current lock + 1 or the start of the
+                // next one
+                min(switch_ind[i].1, switch_ind[i+1].0)
+            };
+            //println!("Lock {i} from {from_s} to {to_s}");
+            for s in from_s..to_s {
+                insert(val_to_bucket_ind(smooths[s]), &mut locks, i);
+            }
+            // consider the number where intervals[i] and intervals[i+1] is needed
+            if i != nr_bitvecs(log_bound)-1 {
+                locks.push(intervals[i+1].lock().unwrap());
+                let from_m = switch_ind[i+1].0;
+                let to_m = switch_ind[i].1;
+                //println!("Lock {i} and {} from {from_m} to {to_m}", i+1);
+                for s in from_m..to_m {
+                    insert(val_to_bucket_ind(smooths[s]), &mut locks, i);
+                }
+            }
+            drop(locks.remove(0));
         }
-        print!("]\n");
-        io::stdout().flush().unwrap();
+        smooths.clear();
+        (full_counters, alt_counters)
+        /*
+        let mut locks = vec![intervals[0].lock().unwrap()];
+        let mut cur_lock_ind = 0;
+        for i in 0..smooths.len() {
+            let val = smooths[i];
+            let ind = val_to_bucket_ind(val);
+            println!("{:?}: BEGIN i: {i}, val: {val}, ind: {ind}, lock_len: {}", thread::current().id(), locks.len());
+
+            if cur_lock_ind != nr_bitvecs(log_bound)-1 {
+                if i == switch_ind[cur_lock_ind+1].0 {
+                    locks.push(intervals[cur_lock_ind+1].lock().unwrap());
+                     println!("{:?}: JUST LOCKED i: {i}, val: {val}, ind: {ind}, lock_ind: {}", thread::current().id(), cur_lock_ind+1);
+                    // we count up if there was no other lock locked
+                    if locks.len() == 1 {
+                        cur_lock_ind += 1;
+                    }
+                }
+            }
+            /* INSERTION START */
+            // we already set the count for the first and last bucket as they will be filled by the
+            // powers of 2 either way. This way we don't have to check the border cases every time
+            // -> check if last bucket really will be filled
+
+            let set_interval = |ind: usize, locks: &mut Vec<MutexGuard<'_, BitVec>>| {
+                let lock_ind = ind/intw;
+                let int_ind = ind%intw;
+                // TODO: make unchecked again
+                locks[lock_ind-cur_lock_ind].set(int_ind, true);
+            };
+
+            let get_interval = |ind: usize, locks: &Vec<MutexGuard<'_, BitVec>>| -> bool {
+                let lock_ind = ind/intw;
+                let int_ind = ind%intw;
+                // TODO: make unchecked again
+                *locks[lock_ind-cur_lock_ind].get(int_ind).unwrap()
+            };
+
+            if !get_interval(ind, &locks) {
+                //println!("Setting {ind} with val {val}");
+                set_interval(ind, &mut locks);
+
+                // we can do this without having to worry about the bounds as the edge cases have
+                // been taken care of in the initialization
+                let prev = get_interval(ind-1, &locks);
+                let after = get_interval(ind+1, &locks);
+
+                let mut add = 2;
+                if prev {
+                    add -= 1;
+                } else {
+                    add += 1;
+                }
+                if after {
+                    add -= 1;
+                } else {
+                    add += 1;
+                }
+
+                let range = bucket_ind_to_counter_ind(ind)..log_bound/2;
+
+                // we are never in the first interval of a counter
+                // neither in the last overall
+                // also, the first interval of the next counter is already covered by a power of 2
+                for i in range {
+                    full_counters[i] += 1;
+                    alt_counters[i] += add;
+                }
+            }
+            /* INSERTION END */
+            // drop the lock after dealing with the smooth number
+            if i == switch_ind[cur_lock_ind].1 {
+                drop(locks.remove(0));
+                println!("{:?}: UNLOCKED i: {i}, val: {val}, ind: {ind}, lock_ind: {}", thread::current().id(), cur_lock_ind);
+                // we count up if there is another lock already locked
+                if locks.len() != 0 {
+                    cur_lock_ind += 1;
+                }
+            }
+            println!("{:?}: AFTER DEL i: {i}, val: {val}, ind: {ind}, lock_len: {}", thread::current().id(), locks.len());
+        }
+        smooths.clear();
+        (full_counters, alt_counters)
+        */
     }
 
-    pub fn add_primes(&mut self, ind: usize) {
-        // if the primes have already been added, do nothing
-        if ind+1 <= self.primes {
-            return;
-        }
-        for i in self.primes..ind+1 {
-            let mut smooths = self.init_gen(i);
-            self.smooths.append(&mut smooths);
-        }
-        self.primes = ind+1;
-        println!("Sorting all together");
-        // sort in parallel
-        self.smooths.par_sort_unstable();
-        println!("Done adding primes");
-    }
-
-    fn init_gen(&self, ind: usize) -> Vec<u128> {
-        let prime = PRIMES[ind];
-        let lower_bound = self.lower_bound;
-        let upper_bound = self.upper_bound;
-        // generate all smooth numbers with a fixed exponent for the new prime
+    fn init_gen(&mut self, ind: usize) {
+        let log_bound = self.log_bound;
+        let intervals = self.intervals.clone();
         let generate_with_fixed = |e_val: u32| {
             let mut c = Composite::new(ind, e_val);
 
-            let mut smooths: Vec<u128> = vec![];
-            let mut add_if_greater = |c: &Composite| {
-                // the upper bound is already checked when generating the number
-                if lower_bound < c.value {
-                    // encode the highest prime in the least significant bits
-                    // assumes that less that 256 primes are used and the number is less than
-                    // 2**120
-                    smooths.push((c.value<<8)+u128::try_from(ind).unwrap());
+            let mut full_counters = vec![0; log_bound/2];
+            let mut alt_counters = vec![0; log_bound/2];
+
+            let mut smooths: Vec<u64> = vec![];
+
+            let mut accumulate = |smooths: &mut Vec<u64>| {
+                //println!("Inserting {:?}", smooths);
+                let (new_full, new_alt) = Self::insert_smooths(smooths, intervals.clone(), log_bound);
+                for i in 0..log_bound/2 {
+                    full_counters[i] += new_full[i];
+                    alt_counters[i] += new_alt[i];
                 }
             };
-            add_if_greater(&c);
-            // we break if the fixed exponent would change
-            loop {
-                c.inc_vec_with_bound(upper_bound);
-                if c.es[ind] == e_val {
-                    add_if_greater(&c);
-                } else {
-                    break
+            let mut cap = 0;
+            while c.es[ind] == e_val {
+                smooths.push(c.value);
+                cap += 1;
+                if cap == 1<<20 {
+                    accumulate(&mut smooths);
+                    cap = 0;
                 }
+                c.inc_vec_with_bound(1u64<<log_bound);
             }
-            smooths
+            accumulate(&mut smooths);
+            (full_counters, alt_counters)
         };
         // for each possible exponent we start a thread
-        let mut smooths = thread::scope(|s| {
+        let (full_counters, alt_counters) = thread::scope(|s| {
             let mut handles = vec![];
-            let p128: u128 = u128::try_from(prime).unwrap();
-            let mut p: u128 = p128;
+            let p = PRIMES[ind];
+            let mut q = p;
             let mut i = 1;
-            while p <= upper_bound {
+            while q <= 1<<log_bound {
                 let h = s.spawn(move || generate_with_fixed(i));
                 handles.push(h);
                 i += 1;
-                p *= p128;
+                q *= p;
             }
-            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
+            handles.into_iter()
+                .map(|h| h.join().unwrap())
+                .fold((vec![0; log_bound/2], vec![0; log_bound/2]),
+                    |(mut full_acc, mut alt_acc), (full, alt)| {
+                        for i in 0..log_bound/2 {
+                            full_acc[i] += full[i];
+                            alt_acc[i] += alt[i];
+                        }
+                        (full_acc, alt_acc)
+                    })
         });
-        smooths.par_sort_unstable();
-        println!("{}: Generated {} smooth numbers", prime, smooths.len());
-        smooths
-    }
-
-    pub fn find_ind_gt(&self, b: u128) -> Option<usize> {
-        let shifted = (b<<8)+255;
-        if self.smooths.len() == 0 || self.smooths[self.smooths.len()-1] <= shifted {
-            return None;
+        for i in 0..log_bound/2 {
+            self.full_counters[i] += full_counters[i];
+            self.alt_counters[i] += alt_counters[i];
         }
-        let ind = match self.smooths.binary_search(&shifted) {
-            Ok(x) => x+1,
-            Err(x) => x,
-        };
-        assert!(self.smooths[ind] > shifted);
-        Some(ind)
-    }
-
-    pub fn find_ind_le(&self, b: u128) -> Option<usize> {
-        let shifted = (b<<8)+255;
-        if self.smooths.len() == 0 || self.smooths[0] > shifted {
-            return None;
-        }
-        let ind = match self.smooths.binary_search(&shifted) {
-            Ok(x) => x,
-            Err(x) => x-1,
-        };
-        assert!(self.smooths[ind] <= shifted);
-        Some(ind)
-    }
-
-    // we would produce every number exactly once per prime involved. In order to not duplicate the
-    // generation, let each number be generated only by the largest prime involved.
-    // -> we need to know the largest prime involved.
-    // Thus, we store each smooth number with the generator belonging to the highest prime
-    // involved.
-    // In order to generate the smooth numbers up to the new bound, for each prime p, we need to go
-    // over the smooth numbers of the less_or_equal primes. For every prime q, we consider the range
-    // (upper_bound/p, new_upper_bound/p) and multiply the numbers in that range by p.
-    pub fn advance(&mut self, new_upper_bound: u128) {
-        // we need the new upper bound to not be more than two times the old one
-        assert!(new_upper_bound/2 <= self.upper_bound);
-        assert!(new_upper_bound > self.upper_bound);
-        let produce = |low_ind: usize, high_ind: usize, prime_ind: usize| -> Vec<u128> {
-            let mut ret: Vec<u128> = vec![];
-            let p = u128::try_from(PRIMES[prime_ind]).unwrap();
-            for i in low_ind..high_ind+1 {
-                let n = self.smooths[i];
-                if usize::try_from(n&255).unwrap() <= prime_ind {
-                    ret.push((((n>>8)*p)<<8)+u128::try_from(prime_ind).unwrap());
-                }
-            }
-            ret
-        };
-        let mut smooths = thread::scope(|s| {
-            let mut handles = vec![];
-            for i in 0..self.primes {
-                let p = u128::try_from(PRIMES[i]).unwrap();
-                let lower = self.upper_bound/p;
-                let upper = new_upper_bound/p;
-                let low_ind = self.find_ind_le(lower).unwrap()+1;
-                let high_ind = self.find_ind_le(upper).unwrap();
-                let h = s.spawn(move || produce(low_ind, high_ind, i));
-                handles.push(h);
-            }
-            handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u128>>>().concat()
-        });
-        smooths.par_sort_unstable();
-        let lower_bound_factor = u128::try_from(PRIMES[self.primes+1]).unwrap();
-        self.lower_bound = new_upper_bound/lower_bound_factor;
-        self.upper_bound = new_upper_bound;
-        let ind = self.find_ind_le(self.lower_bound).unwrap()+1;
-        let new_len = self.smooths.len() - ind;
-        let old_len = self.smooths.len();
-        self.smooths.copy_within(ind..old_len, 0);
-        self.smooths.truncate(new_len);
-        self.smooths.append(&mut smooths);
     }
 }
 
