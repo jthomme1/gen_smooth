@@ -44,13 +44,54 @@ impl Composite {
         true
     }
 
-    pub fn inc_vec_with_bound(&mut self, bound: u64) {
+    pub fn inc_vec_with_bound(&mut self, bound: u64) -> bool {
         // increment the number represented by the exponents
         for i in 0..self.es.len() {
             if self.try_inc_ind(bound, i) {
-                break;
+                return true;
             }
         }
+        false
+    }
+
+    pub fn try_inc_by_n(&mut self, n: u32, bound: u64) -> u32 {
+        // try to increment the exponent at index ind by n and set it to 0 otherwise
+        let factor_left = bound/self.value;
+        let max_advance = factor_left.ilog2();
+        if max_advance >= n {
+            self.value *= 1<<n;
+            self.es[0] += n;
+            return 0;
+        } else {
+            self.value *= 1<<max_advance;
+            self.es[0] += max_advance;
+            return n-max_advance;
+        }
+    }
+
+    pub fn inc_vec_by_n_with_bound(&mut self, n: usize, bound: u64) -> bool {
+        /*
+        for _ in 0..n {
+            if !self.inc_vec_with_bound(bound) {
+                return false;
+            }
+        }
+        */
+
+        let mut left = u32::try_from(n).unwrap();
+        // we try to increment by multiplying by 2**n. If this is to big, take the biggest power of
+        // 2 that is possible and then increment normally before repeating until we incremented n
+        // times. In the worst case, we increment in single steps.
+        while left > 0 {
+            left = self.try_inc_by_n(left, bound);
+            if left > 0 {
+                if !self.inc_vec_with_bound(bound) {
+                    return false;
+                }
+                left -= 1;
+            }
+        }
+        true
     }
 }
 

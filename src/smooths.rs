@@ -104,12 +104,12 @@ impl Smooths {
             //let c = (PRIMES[self.primes] as f64).log(val as f64);
             if self.full_counters[i] == counter_limit(i) && self.full_filled <= i {
                 //println!("2**{}: c <= {}", val, c);
-                println!("2**{}: fully covered", val);
+                println!("Adding of {} resulted in 2**{} being fully covered", PRIMES[self.primes], val);
                 self.full_filled = i+1;
             }
             if self.alt_counters[i] == 2*counter_limit(i) && self.alt_filled <= i {
                 //println!("2**{}: c >= {}", val, c);
-                println!("2**{}: alternatingly covered", val);
+                println!("Adding of {} resulted in 2**{} being alternatingly covered", PRIMES[self.primes], val);
                 self.alt_filled = i+1;
             }
         }
@@ -199,7 +199,9 @@ impl Smooths {
             }
         };
 
+        //println!("{:?}: LOCKING lock 0", thread::current().id());
         let mut locks = vec![intervals[0].lock().unwrap()];
+        //println!("{:?}: LOCKED lock 0", thread::current().id());
         for i in 0..nr_bitvecs(log_bound) {
             // invariant: here, only intervals[i] is locked
             // start with the numbers where only intervals[i] is needed
@@ -223,7 +225,9 @@ impl Smooths {
             }
             // consider the number where intervals[i] and intervals[i+1] is needed
             if i != nr_bitvecs(log_bound)-1 {
+                //println!("{:?}: LOCKING lock {}", thread::current().id(), i+1);
                 locks.push(intervals[i+1].lock().unwrap());
+                //println!("{:?}: LOCKED lock {}", thread::current().id(), i+1);
                 let from_m = switch_ind[i+1].0;
                 let to_m = switch_ind[i].1;
                 //println!("Lock {i} and {} from {from_m} to {to_m}", i+1);
@@ -231,7 +235,9 @@ impl Smooths {
                     insert(val_to_bucket_ind(smooths[s]), &mut locks, i);
                 }
             }
+            //println!("{:?}: UNLOCKING lock {i}", thread::current().id());
             drop(locks.remove(0));
+            //println!("{:?}: UNLOCKED lock {i}", thread::current().id());
         }
         smooths.clear();
         (full_counters, alt_counters)
@@ -323,16 +329,23 @@ impl Smooths {
     fn init_gen(&mut self, ind: usize) {
         let log_bound = self.log_bound;
         let intervals = self.intervals.clone();
-        let generate_with_fixed = |e_val: u32| {
-            let mut c = Composite::new(ind, e_val);
-
+        let lower_bound = counter_ind_to_bound(self.full_filled-1);
+        let generate_with_fixed = |start_off: usize| {
             let mut full_counters = vec![0; log_bound/2];
             let mut alt_counters = vec![0; log_bound/2];
+
+            let mut c = Composite::new(ind, 1);
+            if !c.inc_vec_by_n_with_bound(start_off, 1u64<<log_bound) {
+                //println!("Returning early from thread with start_off {start_off}.");
+                return (full_counters, alt_counters);
+            }
+
+            //println!("{:?} starting with {}, corresponding to start_off {start_off}", thread::current().id(), c.value);
 
             let mut smooths: Vec<u64> = vec![];
 
             let mut accumulate = |smooths: &mut Vec<u64>| {
-                //println!("Inserting {:?}", smooths);
+                //println!("{:?}: accumulate {:?}", thread::current().id(), smooths);
                 let (new_full, new_alt) = Self::insert_smooths(smooths, intervals.clone(), log_bound);
                 for i in 0..log_bound/2 {
                     full_counters[i] += new_full[i];
@@ -340,29 +353,28 @@ impl Smooths {
                 }
             };
             let mut cap = 0;
-            while c.es[ind] == e_val {
-                smooths.push(c.value);
-                cap += 1;
-                if cap == 1<<20 {
-                    accumulate(&mut smooths);
-                    cap = 0;
+            loop {
+                if c.value >= lower_bound {
+                    smooths.push(c.value);
+                    cap += 1;
+                    if cap == 1<<20 {
+                        accumulate(&mut smooths);
+                        cap = 0;
+                    }
                 }
-                c.inc_vec_with_bound(1u64<<log_bound);
+                if !c.inc_vec_by_n_with_bound(*NUM_THREADS, 1u64<<log_bound) {
+                    break;
+                }
             }
             accumulate(&mut smooths);
+            //println!("{:?} with start_off {start_off} is done", thread::current().id());
             (full_counters, alt_counters)
         };
-        // for each possible exponent we start a thread
         let (full_counters, alt_counters) = thread::scope(|s| {
             let mut handles = vec![];
-            let p = PRIMES[ind];
-            let mut q = p;
-            let mut i = 1;
-            while q <= 1<<log_bound {
+            for i in 0..*NUM_THREADS {
                 let h = s.spawn(move || generate_with_fixed(i));
                 handles.push(h);
-                i += 1;
-                q *= p;
             }
             handles.into_iter()
                 .map(|h| h.join().unwrap())
