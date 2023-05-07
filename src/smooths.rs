@@ -129,8 +129,8 @@ impl Smooths {
         for i in 0..nr_bitvecs(log_bound) {
             // we need to lock a mutex starting from the interval preceeding the first interval
             // covered by the mutex
-            let first_int = if i == 0 { 0 } else { i*intw-1 };
-            let last_int = if i == nr_bitvecs(log_bound)-1 { (i+1)*intw-1 } else { (i+1)*intw };
+            let first_int = u128::try_from(if i == 0 { 0 } else { i*intw-1 }).unwrap();
+            let last_int = u128::try_from(if i == nr_bitvecs(log_bound)-1 { (i+1)*intw-1 } else { (i+1)*intw }).unwrap();
             //println!("{:?}: We need lock {i} from interval {first_int} to {last_int}", thread::current().id());
             let first_num = u128::try_from((first_int+1)*(first_int+1)).unwrap();
             let last_num = u128::try_from((last_int+2)*(last_int+2)-1).unwrap();
@@ -241,89 +241,6 @@ impl Smooths {
         }
         smooths.clear();
         (full_counters, alt_counters)
-        /*
-        let mut locks = vec![intervals[0].lock().unwrap()];
-        let mut cur_lock_ind = 0;
-        for i in 0..smooths.len() {
-            let val = smooths[i];
-            let ind = val_to_bucket_ind(val);
-            println!("{:?}: BEGIN i: {i}, val: {val}, ind: {ind}, lock_len: {}", thread::current().id(), locks.len());
-
-            if cur_lock_ind != nr_bitvecs(log_bound)-1 {
-                if i == switch_ind[cur_lock_ind+1].0 {
-                    locks.push(intervals[cur_lock_ind+1].lock().unwrap());
-                     println!("{:?}: JUST LOCKED i: {i}, val: {val}, ind: {ind}, lock_ind: {}", thread::current().id(), cur_lock_ind+1);
-                    // we count up if there was no other lock locked
-                    if locks.len() == 1 {
-                        cur_lock_ind += 1;
-                    }
-                }
-            }
-            /* INSERTION START */
-            // we already set the count for the first and last bucket as they will be filled by the
-            // powers of 2 either way. This way we don't have to check the border cases every time
-            // -> check if last bucket really will be filled
-
-            let set_interval = |ind: usize, locks: &mut Vec<MutexGuard<'_, BitVec>>| {
-                let lock_ind = ind/intw;
-                let int_ind = ind%intw;
-                // TODO: make unchecked again
-                locks[lock_ind-cur_lock_ind].set(int_ind, true);
-            };
-
-            let get_interval = |ind: usize, locks: &Vec<MutexGuard<'_, BitVec>>| -> bool {
-                let lock_ind = ind/intw;
-                let int_ind = ind%intw;
-                // TODO: make unchecked again
-                *locks[lock_ind-cur_lock_ind].get(int_ind).unwrap()
-            };
-
-            if !get_interval(ind, &locks) {
-                //println!("Setting {ind} with val {val}");
-                set_interval(ind, &mut locks);
-
-                // we can do this without having to worry about the bounds as the edge cases have
-                // been taken care of in the initialization
-                let prev = get_interval(ind-1, &locks);
-                let after = get_interval(ind+1, &locks);
-
-                let mut add = 2;
-                if prev {
-                    add -= 1;
-                } else {
-                    add += 1;
-                }
-                if after {
-                    add -= 1;
-                } else {
-                    add += 1;
-                }
-
-                let range = bucket_ind_to_counter_ind(ind)..log_bound/2;
-
-                // we are never in the first interval of a counter
-                // neither in the last overall
-                // also, the first interval of the next counter is already covered by a power of 2
-                for i in range {
-                    full_counters[i] += 1;
-                    alt_counters[i] += add;
-                }
-            }
-            /* INSERTION END */
-            // drop the lock after dealing with the smooth number
-            if i == switch_ind[cur_lock_ind].1 {
-                drop(locks.remove(0));
-                println!("{:?}: UNLOCKED i: {i}, val: {val}, ind: {ind}, lock_ind: {}", thread::current().id(), cur_lock_ind);
-                // we count up if there is another lock already locked
-                if locks.len() != 0 {
-                    cur_lock_ind += 1;
-                }
-            }
-            println!("{:?}: AFTER DEL i: {i}, val: {val}, ind: {ind}, lock_len: {}", thread::current().id(), locks.len());
-        }
-        smooths.clear();
-        (full_counters, alt_counters)
-        */
     }
 
     fn init_gen(&mut self, ind: usize) {

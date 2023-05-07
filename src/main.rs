@@ -8,7 +8,7 @@ pub mod composite;
 pub mod smooths;
 
 // this should suffice for now
-static PRIME_BOUND: usize = 1<<12;
+static PRIME_BOUND: usize = 1<<16;
 static PRIMES: Lazy<Vec<u128>> = Lazy::new(||
                                            primal::Sieve::new(PRIME_BOUND)
                                            .primes_from(0)
