@@ -4,7 +4,7 @@ use super::PRIMES;
 
 #[derive(Eq, Debug)]
 pub struct Composite {
-    pub value: u64,
+    pub value: u128,
     pub es: Vec<u32>,
 }
 
@@ -15,7 +15,7 @@ impl Composite {
         let value = es
             .iter()
             .enumerate()
-            .fold(1u64, |acc, (i, &e)| acc*(PRIMES[i]).pow(e.into()));
+            .fold(1u128, |acc, (i, &e)| acc*(PRIMES[i]).pow(e.into()));
         Composite{value, es}
     }
 
@@ -31,7 +31,7 @@ impl Composite {
         self.es[ind] = new_e;
     }
 
-    pub fn try_inc_ind(&mut self, bound: u64, ind: usize) -> bool {
+    pub fn try_inc_ind(&mut self, bound: u128, ind: usize) -> bool {
         // try to increment the exponent at index ind and set it to 0 otherwise
         let p = PRIMES[ind];
         if bound/p < self.value {
@@ -44,7 +44,7 @@ impl Composite {
         true
     }
 
-    pub fn inc_vec_with_bound(&mut self, bound: u64) -> bool {
+    pub fn inc_vec_with_bound(&mut self, bound: u128) -> bool {
         // increment the number represented by the exponents
         for i in 0..self.es.len() {
             if self.try_inc_ind(bound, i) {
@@ -54,7 +54,7 @@ impl Composite {
         false
     }
 
-    pub fn try_inc_by_n(&mut self, n: u32, bound: u64) -> u32 {
+    pub fn try_inc_by_n(&mut self, n: u32, bound: u128) -> u32 {
         // try to increment the exponent at index ind by n and set it to 0 otherwise
         let factor_left = bound/self.value;
         let max_advance = factor_left.ilog2();
@@ -69,7 +69,7 @@ impl Composite {
         }
     }
 
-    pub fn inc_vec_by_n_with_bound(&mut self, n: usize, bound: u64) -> bool {
+    pub fn inc_vec_by_n_with_bound(&mut self, n: usize, bound: u128) -> bool {
         /*
         for _ in 0..n {
             if !self.inc_vec_with_bound(bound) {

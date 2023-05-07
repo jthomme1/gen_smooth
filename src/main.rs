@@ -9,12 +9,12 @@ pub mod smooths;
 
 // this should suffice for now
 static PRIME_BOUND: usize = 1<<12;
-static PRIMES: Lazy<Vec<u64>> = Lazy::new(||
+static PRIMES: Lazy<Vec<u128>> = Lazy::new(||
                                            primal::Sieve::new(PRIME_BOUND)
                                            .primes_from(0)
                                            .collect::<Vec<usize>>()
                                            .into_iter()
-                                           .map(|x| u64::try_from(x).unwrap())
+                                           .map(|x| u128::try_from(x).unwrap())
                                            .collect());
 
 fn main() {

@@ -10,8 +10,8 @@ use super::PRIMES;
 
 static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().unwrap().get());
 
-fn counter_ind_to_bound(ind: usize) -> u64 {
-    1u64<<(2*(ind+1))
+fn counter_ind_to_bound(ind: usize) -> u128 {
+    1u128<<(2*(ind+1))
 }
 
 fn bucket_ind_to_counter_ind(ind: usize) -> usize {
@@ -22,7 +22,7 @@ fn counter_limit(ind: usize) -> usize {
     (1<<(ind+1))-1
 }
 
-fn val_to_bucket_ind(val: u64) -> usize {
+fn val_to_bucket_ind(val: u128) -> usize {
     usize::try_from(val.integer_sqrt()).unwrap()-1
 }
 
@@ -116,7 +116,7 @@ impl Smooths {
         self.primes += 1;
     }
 
-    fn insert_smooths(smooths: &mut Vec<u64>, intervals: Arc<Vec<Mutex<BitVec>>>, log_bound: usize) -> (Vec<usize>, Vec<usize>) {
+    fn insert_smooths(smooths: &mut Vec<u128>, intervals: Arc<Vec<Mutex<BitVec>>>, log_bound: usize) -> (Vec<usize>, Vec<usize>) {
         let intw = interval_width(log_bound);
         let mut full_counters = vec![0; log_bound/2];
         let mut alt_counters = vec![0; log_bound/2];
@@ -132,8 +132,8 @@ impl Smooths {
             let first_int = if i == 0 { 0 } else { i*intw-1 };
             let last_int = if i == nr_bitvecs(log_bound)-1 { (i+1)*intw-1 } else { (i+1)*intw };
             //println!("{:?}: We need lock {i} from interval {first_int} to {last_int}", thread::current().id());
-            let first_num = u64::try_from((first_int+1)*(first_int+1)).unwrap();
-            let last_num = u64::try_from((last_int+2)*(last_int+2)-1).unwrap();
+            let first_num = u128::try_from((first_int+1)*(first_int+1)).unwrap();
+            let last_num = u128::try_from((last_int+2)*(last_int+2)-1).unwrap();
             //println!("{:?}: For lock {i}, this corresponds to the numbers from {first_num} to {last_num}", thread::current().id());
             // the index when we need to lock the mutex
             let first_ind = match smooths.binary_search(&first_num) {
@@ -163,7 +163,7 @@ impl Smooths {
             *locks[lock_ind-cur_lock_ind].get(int_ind).unwrap()
         };
 
-        let mut insert = |ind: usize, /* val: u64,*/locks: &mut Vec<MutexGuard<'_, BitVec>>, cur_lock_ind: usize| {
+        let mut insert = |ind: usize, /* val: u128,*/locks: &mut Vec<MutexGuard<'_, BitVec>>, cur_lock_ind: usize| {
             //println!("Checking for {val} with ind {ind}, len_locks: {}", locks.len());
             if !get_interval(ind, &locks, cur_lock_ind) {
                 //println!("Setting {ind} with val {val}");
@@ -335,16 +335,16 @@ impl Smooths {
             let mut alt_counters = vec![0; log_bound/2];
 
             let mut c = Composite::new(ind, 1);
-            if !c.inc_vec_by_n_with_bound(start_off, 1u64<<log_bound) {
+            if !c.inc_vec_by_n_with_bound(start_off, 1u128<<log_bound) {
                 //println!("Returning early from thread with start_off {start_off}.");
                 return (full_counters, alt_counters);
             }
 
             //println!("{:?} starting with {}, corresponding to start_off {start_off}", thread::current().id(), c.value);
 
-            let mut smooths: Vec<u64> = vec![];
+            let mut smooths: Vec<u128> = vec![];
 
-            let mut accumulate = |smooths: &mut Vec<u64>| {
+            let mut accumulate = |smooths: &mut Vec<u128>| {
                 //println!("{:?}: accumulate {:?}", thread::current().id(), smooths);
                 let (new_full, new_alt) = Self::insert_smooths(smooths, intervals.clone(), log_bound);
                 for i in 0..log_bound/2 {
@@ -362,7 +362,7 @@ impl Smooths {
                         cap = 0;
                     }
                 }
-                if !c.inc_vec_by_n_with_bound(*NUM_THREADS, 1u64<<log_bound) {
+                if !c.inc_vec_by_n_with_bound(*NUM_THREADS, 1u128<<log_bound) {
                     break;
                 }
             }
