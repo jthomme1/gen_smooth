@@ -10,7 +10,7 @@ pub struct Smooths {
     // lower_bound < x <= upper_bound
     pub lower_bound: u64,
     pub upper_bound: u64,
-    primes: usize,
+    pub primes: usize,
     smooths: Vec<u64>,
 }
 
@@ -23,7 +23,7 @@ impl Smooths {
             smooths: vec![]
         };
         // we always already add the 2 smooth numbers
-        ret.add_primes(0);
+        ret.add_prime();
         ret
     }
 
@@ -48,20 +48,14 @@ impl Smooths {
         io::stdout().flush().unwrap();
     }
 
-    pub fn add_primes(&mut self, ind: usize) {
-        // if the primes have already been added, do nothing
-        if ind+1 <= self.primes {
-            return;
-        }
-        for i in self.primes..ind+1 {
-            let mut smooths = self.init_gen(i);
-            self.smooths.append(&mut smooths);
-        }
-        self.primes = ind+1;
+    pub fn add_prime(&mut self) {
+        let mut smooths = self.init_gen(self.primes);
+        self.smooths.append(&mut smooths);
+        self.primes += 1;
         println!("Sorting all together");
         // sort in parallel
         self.smooths.par_sort_unstable();
-        println!("Done adding primes");
+        println!("Done adding prime");
     }
 
     fn init_gen(&self, ind: usize) -> Vec<u64> {
