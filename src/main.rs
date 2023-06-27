@@ -65,7 +65,7 @@ fn main() {
                 let start = min(cur+i*step_width, smooths.len()-1);
                 let stop = min(cur+(i+1)*step_width, smooths.len()-1);
                 for x in start..stop {
-                    if left(smooths.get(x+1)) > right(smooths.get(x)) {
+                    if left(smooths.get(x+1)) > right(smooths.get(x)) + 1 {
                         return Some(x);
                     }
                 }
