@@ -1,8 +1,8 @@
 use std::vec::Vec;
-use std::cmp::min;
+//use std::cmp::min;
 use crate::composite::Composite;
-use super::{PRIMES};
-use std::thread;
+use super::{PRIMES, PRIME_POWERS};
+//use std::thread;
 use rayon::prelude::*;
 use std::io::{self, Write};
 
@@ -10,7 +10,8 @@ pub struct Smooths {
     // lower_bound < x <= upper_bound
     pub lower_bound: u64,
     pub upper_bound: u64,
-    pub primes: usize,
+    pub pp_ind: usize,
+    //smooths_by_pp: Vec<Vec<u64>>,
     smooths: Vec<u64>,
 }
 
@@ -18,12 +19,13 @@ impl Smooths {
     pub fn new(bound: u64) -> Self {
         let mut ret = Smooths{
             lower_bound: 1,
-            upper_bound: min(1<<40, bound),
-            primes: 0,
-            smooths: vec![]
+            upper_bound: bound,
+            pp_ind: 0,
+            //smooths_by_pp: vec![],
+            smooths: vec![],
         };
         // we always already add the 2 smooth numbers
-        ret.add_prime();
+        ret.add_prime_power(1);
         ret
     }
 
@@ -36,7 +38,7 @@ impl Smooths {
     }
 
     pub fn ind(&self) -> usize {
-        self.primes
+        self.pp_ind
     }
 
     pub fn print_smooths(&self) {
@@ -48,44 +50,74 @@ impl Smooths {
         io::stdout().flush().unwrap();
     }
 
-    pub fn add_prime(&mut self) {
-        let mut smooths = self.init_gen(self.primes);
+    pub fn add_prime_power(&mut self, new_lower_bound: u64) {
+        self.lower_bound = new_lower_bound;
+        let mut smooths = self.init_gen();
+        //self.smooths_by_pp.push(smooths.clone());
+        //self.print_smooths_by_pp(self.pp_ind);
+        if new_lower_bound != 1 {
+            let ind = self.find_ind_le(self.lower_bound).unwrap();
+            let new_len = self.smooths.len() - ind;
+            let old_len = self.smooths.len();
+            self.smooths.copy_within(ind..old_len, 0);
+            self.smooths.truncate(new_len);
+        }
         self.smooths.append(&mut smooths);
-        self.primes += 1;
+        self.pp_ind += 1;
         println!("Sorting all together");
         // sort in parallel
         self.smooths.par_sort_unstable();
-        println!("Done adding prime");
+        println!("Done adding prime power");
+        //self.print_smooths();
     }
 
-    fn init_gen(&self, ind: usize) -> Vec<u64> {
-        let prime = PRIMES[ind];
+    fn init_gen(&self) -> Vec<u64> {
+        let pp = PRIME_POWERS[self.pp_ind];
+        let max_prime = match PRIMES.binary_search(&pp) {
+            Ok(i) => PRIMES[i],
+            Err(i) => PRIMES[i],
+        };
+        let p_ind = PRIMES.iter().position(|&x| pp % x == 0).unwrap();
+        let p = PRIMES[p_ind];
+        let mut e = 0;
+        let mut cur = 1;
+        while cur != pp {
+            e += 1;
+            cur *= p;
+        }
         let lower_bound = self.lower_bound;
         let upper_bound = self.upper_bound;
         // generate all smooth numbers with a fixed exponent for the new prime
-        let generate_with_fixed = |e_val: u32| {
-            let mut c = Composite::new(ind, e_val);
+        let generate_with_fixed = || {
+            let mut c = Composite::new(max_prime, 0);
 
             let mut smooths: Vec<u64> = vec![];
-            let mut add_if_greater = |c: &Composite| {
+            /*let mut add_if_greater = |c: &Composite| {
                 // the upper bound is already checked when generating the number
                 if lower_bound < c.value {
                     smooths.push(c.value);
                 }
             };
-            add_if_greater(&c);
+            add_if_greater(&c);*/
+            let mut add_if_pp_and_greater = |c: &Composite| {
+                // the upper bound is already checked when generating the number
+                if c.es[p_ind] == e && c.value > lower_bound {
+                    smooths.push(c.value);
+                }
+            };
+            add_if_pp_and_greater(&c);
             // we break if the fixed exponent would change
             loop {
-                c.inc_vec_with_bound(upper_bound);
-                if c.es[ind] == e_val {
-                    add_if_greater(&c);
-                } else {
-                    break
+                c.inc_vec_with_bound(upper_bound, u64::try_from(pp).unwrap());
+                add_if_pp_and_greater(&c);
+                if c.value == 1 {
+                    break;
                 }
             }
             smooths
         };
         // for each possible exponent we start a thread
+        /*
         let mut smooths = thread::scope(|s| {
             let mut handles = vec![];
             let p64: u64 = u64::try_from(prime).unwrap();
@@ -100,14 +132,16 @@ impl Smooths {
                     break;
                 }
                 p *= p64;
-                if p > upper_bound {
+                if p > PRIME_POWER_BOUND {
                     break;
                 }
             }
             handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<Vec<u64>>>().concat()
         });
+        */
+        let mut smooths = generate_with_fixed();
         smooths.par_sort_unstable();
-        println!("{}: Generated {} smooth numbers", prime, smooths.len());
+        println!("{}: Generated {} smooth numbers", pp, smooths.len());
         smooths
     }
 
@@ -134,6 +168,7 @@ impl Smooths {
         assert!(self.smooths[ind] <= b);
         Some(ind)
     }
+    /*
 
     fn highest_prime_ind_involved(&self, n: u64) -> usize {
         for i in (0..self.primes).rev() {
@@ -191,6 +226,6 @@ impl Smooths {
         self.smooths.copy_within(ind..old_len, 0);
         self.smooths.truncate(new_len);
         self.smooths.append(&mut smooths);
-    }
+    }*/
 }
 

@@ -11,8 +11,20 @@ pub mod composite;
 pub mod smooths;
 
 // this should suffice for now
-static PRIME_BOUND: usize = 2<<20;
-static PRIMES: Lazy<Vec<usize>> = Lazy::new(|| primal::Sieve::new(PRIME_BOUND).primes_from(0).collect());
+static PRIME_POWER_BOUND: usize = 2<<10;
+static PRIMES: Lazy<Vec<usize>> = Lazy::new(|| primal::Sieve::new(PRIME_POWER_BOUND).primes_from(0).collect());
+static PRIME_POWERS: Lazy<Vec<usize>> = Lazy::new(|| {
+                                                  let mut pp = vec![];
+                                                  for p in PRIMES.iter() {
+                                                      let mut cur: usize = *p;
+                                                      while cur <= PRIME_POWER_BOUND {
+                                                          pp.push(cur);
+                                                          cur *= p;
+                                                      }
+                                                  }
+                                                  pp.sort();
+                                                  pp
+});
 static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().unwrap().get());
 
 fn main() {
@@ -43,19 +55,12 @@ fn main() {
     // element
     while right(smooths.get(cur)) < n {
         if cur == smooths.len() - 1 {
-            if right(smooths.get(cur)) >= smooths.upper_bound {
-                let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
-                println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
-                let cur_val = smooths.get(cur);
-                smooths.advance(new_upper_bound);
-                cur = smooths.find_ind_le(cur_val).unwrap();
-                println!("Done setting upper bound");
-            } else {
-                let cur_val = smooths.get(cur);
-                println!("Gap at {cur_val} with primes up to {}", PRIMES[smooths.primes-1]);
-                smooths.add_prime();
-                cur = smooths.find_ind_le(cur_val).unwrap();
-            }
+            // we have a gap because we are out of powersmooth numbers
+            let cur_val = smooths.get(cur);
+            println!("Gap at {cur_val} with prime powers up to {}", PRIME_POWERS[smooths.pp_ind-1]);
+            smooths.add_prime_power(cur_val);
+            cur = smooths.find_ind_le(cur_val).unwrap();
+            assert!(smooths.get(cur) == cur_val)
         } else {
             // since it is really rare that there is no smooth number in the interval of
             // interest, we parallelize the search
@@ -84,9 +89,11 @@ fn main() {
                     cur = x;
                     // the gap was too big, try to add more smooth numbers
                     let cur_val = smooths.get(cur);
-                    println!("Gap at {cur_val} with primes up to {}", PRIMES[smooths.primes-1]);
-                    smooths.add_prime();
+                    let next_val = smooths.get(cur + 1);
+                    println!("Gap between {cur_val} and {next_val} with prime powers up to {}", PRIME_POWERS[smooths.pp_ind-1]);
+                    smooths.add_prime_power(cur_val);
                     cur = smooths.find_ind_le(cur_val).unwrap();
+                    assert!(smooths.get(cur) == cur_val)
                 },
                 None => {
                     // advance normally if no gap was found
