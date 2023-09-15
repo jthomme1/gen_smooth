@@ -1,11 +1,11 @@
 use crate::smooths::Smooths;
 use std::vec::Vec;
 use once_cell::sync::Lazy;
-use integer_sqrt::IntegerSquareRoot;
 use primal;
 use std::thread;
 use std::cmp::min;
 use std::env;
+use std::str::FromStr;
 
 pub mod composite;
 pub mod smooths;
@@ -20,22 +20,26 @@ fn main() {
     println!("Now generating primes.");
     println!("{} primes generated.", PRIMES.len());
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        println!("Provide exactly one argument (upper bound).");
+    if args.len() != 3 {
+        println!("Provide exactly two arguments (upper bound and exponent).");
         return;
     }
     let n = u64::from_str_radix(&args[1], 10).unwrap();
+    let e = f64::from_str(&args[2]).unwrap();
     // index to the current smooth number we consider
     let mut smooths = Smooths::new(n);
     let mut cur: usize = smooths.find_ind_le(2).unwrap();
     // the interval covered by a smooth number
+    let width = |x: u64| {
+        (x as f64).log2().powf(e) as u64
+    };
     let right = |x: u64| {
-        if u64::MAX - (4u64*x).integer_sqrt() - 1u64 < x {
+        if u64::MAX - width(x) - 1u64 < x {
             return u64::MAX;
         }
-        x + (4u64*x).integer_sqrt() + 1u64
+        x + width(x) + 1u64
     };
-    let left = |x: u64| {x - (4u64*x).integer_sqrt() + 1u64};
+    let left = |x: u64| {x - width(x) + 1u64};
     // fn to get the index of the biggest prime below the bound for val and c
     println!("Detected {}-parallelism.", *NUM_THREADS);
     // iterate over current range of smooth numbers
@@ -44,7 +48,13 @@ fn main() {
     while right(smooths.get(cur)) < n {
         if cur == smooths.len() - 1 {
             if right(smooths.get(cur)) >= smooths.upper_bound {
-                let new_upper_bound = min(smooths.upper_bound + smooths.upper_bound/2, n);
+                let new_upper_bound = {
+                    if u64::MAX - smooths.upper_bound/2 < smooths.upper_bound {
+                        u64::MAX
+                    } else {
+                        min(smooths.upper_bound + smooths.upper_bound/2, n)
+                    }
+                };
                 println!("Setting upper bound from {} to {}", smooths.upper_bound, new_upper_bound);
                 let cur_val = smooths.get(cur);
                 smooths.advance(new_upper_bound);
@@ -59,7 +69,7 @@ fn main() {
         } else {
             // since it is really rare that there is no smooth number in the interval of
             // interest, we parallelize the search
-            let step_width: usize = 1 << 20;
+            let step_width: usize = 1 << 14;
             // returns Some(x) if for index x the gap is too big
             let check_gap = |i: usize| -> Option<usize> {
                 let start = min(cur+i*step_width, smooths.len()-1);
@@ -84,7 +94,7 @@ fn main() {
                     cur = x;
                     // the gap was too big, try to add more smooth numbers
                     let cur_val = smooths.get(cur);
-                    println!("Gap at {cur_val} with primes up to {}", PRIMES[smooths.primes-1]);
+                    println!("Gap between {cur_val} and {} with primes up to {}", smooths.get(cur+1), PRIMES[smooths.primes-1]);
                     smooths.add_prime();
                     cur = smooths.find_ind_le(cur_val).unwrap();
                 },
