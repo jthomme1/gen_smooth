@@ -17,21 +17,25 @@ static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().u
 
 fn main() {
     // accessing PRIMES triggers its generataion
-    println!("Now generating primes.");
     println!("{} primes generated.", PRIMES.len());
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        println!("Provide exactly two arguments (upper bound and exponent).");
+    if args.len() != 4 {
+        println!("Provide exactly three arguments (upper bound, whether log (0) or exp (1), exponent).");
         return;
     }
     let n = u64::from_str_radix(&args[1], 10).unwrap();
-    let e = f64::from_str(&args[2]).unwrap();
+    let exp = u64::from_str_radix(&args[2], 10).unwrap();
+    let e = f64::from_str(&args[3]).unwrap();
     // index to the current smooth number we consider
     let mut smooths = Smooths::new(n);
     let mut cur: usize = smooths.find_ind_le(2).unwrap();
     // the interval covered by a smooth number
     let width = |x: u64| {
-        (x as f64).log2().powf(e) as u64
+        if exp == 1 {
+            (x as f64).powf(e) as u64
+        } else {
+            (x as f64).log2().powf(e) as u64
+        }
     };
     let right = |x: u64| {
         if u64::MAX - width(x) - 1u64 < x {
@@ -39,7 +43,12 @@ fn main() {
         }
         x + width(x) + 1u64
     };
-    let left = |x: u64| {x - width(x) + 1u64};
+    let left = |x: u64| {
+        if width(x) - 1u64 > x {
+            return 0
+        }
+        x - width(x) + 1u64
+    };
     // fn to get the index of the biggest prime below the bound for val and c
     println!("Detected {}-parallelism.", *NUM_THREADS);
     // iterate over current range of smooth numbers
