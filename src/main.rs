@@ -16,8 +16,6 @@ static PRIMES: Lazy<Vec<usize>> = Lazy::new(|| primal::Sieve::new(PRIME_BOUND).p
 static NUM_THREADS: Lazy<usize> = Lazy::new(|| thread::available_parallelism().unwrap().get());
 
 fn main() {
-    // accessing PRIMES triggers its generataion
-    println!("{} primes generated.", PRIMES.len());
     let args: Vec<String> = env::args().collect();
     if args.len() != 4 {
         println!("Provide exactly three arguments (upper bound, whether log (0) or exp (1), exponent).");
@@ -26,6 +24,7 @@ fn main() {
     let n = u64::from_str_radix(&args[1], 10).unwrap();
     let exp = u64::from_str_radix(&args[2], 10).unwrap();
     let e = f64::from_str(&args[3]).unwrap();
+    println!("{n}, {exp}, {e}");
     // index to the current smooth number we consider
     let mut smooths = Smooths::new(n);
     let mut cur: usize = smooths.find_ind_le(2).unwrap();
